@@ -74,7 +74,7 @@ export function UValuePanel({ result, colorMap }) {
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.label}</span>
                   </td>
                   <td style={td("", { mono: true, right: true, muted: isSurface })}>
-                    {isSurface ? "—" : (typeof row.λ === "number" ? row.λ : row.λ)}
+                    {isSurface ? "—" : row.λ == null ? "—" : typeof row.λ === "number" ? row.λ : row.λ}
                   </td>
                   <td style={td("", { mono: true, right: true, muted: isSurface })}>
                     {isSurface ? "—" : row.d.toFixed(3)}

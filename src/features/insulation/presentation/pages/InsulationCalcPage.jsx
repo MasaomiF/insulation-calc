@@ -6,9 +6,9 @@ import { exportInsulationReportPdf } from "../utils/exportInsulationReportPdf";
 import { useInsulationCalc } from "../hooks/useInsulationCalc";
 import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
 import {
-  INITIAL_DENSITY_DB,
   INITIAL_MATERIAL_DB,
   normalizeMaterialDbEntries,
+  normalizeDensityDbEntries,
   findLambdaDuplicateGroupsInDb,
 } from "../../domain/constants/materialDatabase";
 
@@ -150,6 +150,31 @@ function defaultLayer(i) {
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
 const SAVE_SCHEMA_VERSION = 3;
 
+/** Rse/Rsi は各1レイヤーのみ。配列上は上が室外なので index(Rse) < index(Rsi)。違反・重複は後勝ちで解除 */
+function sanitizeRsSurfaceLayers(inputLayers) {
+  const layers = inputLayers.map((L) => ({ ...L }));
+  let keptRse = false;
+  let keptRsi = false;
+  for (let j = 0; j < layers.length; j++) {
+    if (layers[j].surfacetype === "rse") {
+      if (keptRse) layers[j] = { ...layers[j], surfacetype: "none" };
+      else keptRse = true;
+    }
+  }
+  for (let j = 0; j < layers.length; j++) {
+    if (layers[j].surfacetype === "rsi") {
+      if (keptRsi) layers[j] = { ...layers[j], surfacetype: "none" };
+      else keptRsi = true;
+    }
+  }
+  const iRse = layers.findIndex((L) => L.surfacetype === "rse");
+  const iRsi = layers.findIndex((L) => L.surfacetype === "rsi");
+  if (iRse >= 0 && iRsi >= 0 && iRse > iRsi) {
+    layers[iRse] = { ...layers[iRse], surfacetype: "none" };
+  }
+  return layers;
+}
+
 function getLambda(materialDb, category, material) {
   return resolveLambda(materialDb, category, material);
 }
@@ -174,8 +199,6 @@ function SectionCanvas({ layers }) {
     layers.forEach((layer) => {
       if (!layer.switchOn || !layer.thickness) return;
       const h = Math.max(layer.thickness * 1.6, 6);
-      if (layer.surfacetype === "rse") cmds.push({ type: "dash", y, color: "#2563eb" });
-      if (layer.surfacetype === "rsi") cmds.push({ type: "dash", y, color: "#dc2626" });
       // material1: 全面背景
       const m1 = layer.materials[0];
       cmds.push({ type: "rect", x: 0, y, w: CANVAS_W, h, color: COLOR_MAP[m1?.color] || "#ccc" });
@@ -186,6 +209,9 @@ function SectionCanvas({ layers }) {
         const x = (CANVAS_W - w) / 2;
         cmds.push({ type: "rect", x, y, w, h, color: COLOR_MAP[mat.color] || "#888" });
       });
+      // 境界線は塗りの上（Rse/Rsi とも設定レイヤー帯の上端）
+      if (layer.surfacetype === "rse") cmds.push({ type: "dash", y, color: "#2563eb" });
+      if (layer.surfacetype === "rsi") cmds.push({ type: "dash", y, color: "#dc2626" });
       y += h;
     });
     canvas.height = Math.max(y + 4, 60);
@@ -353,10 +379,11 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove, materialDb,
         />
       </div>
 
-      {/* λ/ρ表示 */}
-      {λ != null && (
+      {/* λ/ρ表示（λ なし材料は比重のみ） */}
+      {mat.materialType === "solid" && (λ != null || rho > 0) && (
         <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}>
-          λ={λ}{rho > 0 ? ` ρ=${(rho / 1000).toFixed(3)}g/cm³` : ""}
+          {λ != null ? `λ=${λ}` : "λなし"}
+          {rho > 0 ? ` ρ=${(rho / 1000).toFixed(3)}g/cm³` : ""}
         </div>
       )}
     </div>
@@ -440,8 +467,8 @@ function LayerRow({ layer, index, onChange, onMoveUp, onMoveDown, canMoveUp, can
               background: layer.surfacetype === "rse" ? "#dbeafe" : layer.surfacetype === "rsi" ? "#fee2e2" : "var(--color-background-primary)",
               color: "var(--color-text-primary)" }}>
             <option value="none">境界なし</option>
-            <option value="rse">Rse（室外側）</option>
-            <option value="rsi">Rsi（室内側）</option>
+            <option value="rse">Rse（室外側・1箇所）</option>
+            <option value="rsi">Rsi（室内側・1箇所）</option>
           </select>
 
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -506,19 +533,6 @@ function SectionPreview({ layers, uResult }) {
     activeLayers.forEach((layer) => {
       const h = (layer.thickness / totalThickness) * (CANVAS_H - HEADER_H * 2);
 
-      if (layer.surfacetype === "rse") {
-        ctx.beginPath(); ctx.setLineDash([6, 3]);
-        ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 1.5;
-        ctx.moveTo(0, y); ctx.lineTo(PREVIEW_W, y);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-      if (layer.surfacetype === "rsi") {
-        ctx.beginPath(); ctx.setLineDash([6, 3]);
-        ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1.5;
-        ctx.moveTo(0, y); ctx.lineTo(PREVIEW_W, y);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-
       // material1（背景）
       const m1 = layer.materials[0];
       ctx.fillStyle = COLOR_MAP[m1?.color] || "#ddd";
@@ -536,6 +550,19 @@ function SectionPreview({ layers, uResult }) {
         ctx.fillStyle = COLOR_MAP[mat.color] || "#888";
         ctx.fillRect(bx, y, bw, h);
       });
+
+      if (layer.surfacetype === "rse") {
+        ctx.beginPath(); ctx.setLineDash([6, 3]);
+        ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 1.5;
+        ctx.moveTo(0, y); ctx.lineTo(PREVIEW_W, y);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (layer.surfacetype === "rsi") {
+        ctx.beginPath(); ctx.setLineDash([6, 3]);
+        ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 1.5;
+        ctx.moveTo(0, y); ctx.lineTo(PREVIEW_W, y);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
 
       y += h;
     });
@@ -569,20 +596,6 @@ function HorizontalSection({ layers, sectionCanvasRef }) {
     activeLayers.forEach((layer) => {
       const h = (layer.thickness / totalThickness) * SECTION_CH;
 
-      // Rse/Rsi境界線（横線）
-      if (layer.surfacetype === "rse") {
-        ctx.beginPath(); ctx.setLineDash([8, 4]);
-        ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2;
-        ctx.moveTo(0, y); ctx.lineTo(SECTION_CW, y);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-      if (layer.surfacetype === "rsi") {
-        ctx.beginPath(); ctx.setLineDash([8, 4]);
-        ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 2;
-        ctx.moveTo(0, y); ctx.lineTo(SECTION_CW, y);
-        ctx.stroke(); ctx.setLineDash([]);
-      }
-
       // material1（背景・全幅）
       const m1 = layer.materials[0];
       ctx.fillStyle = COLOR_MAP[m1?.color] || "#ddd";
@@ -601,6 +614,20 @@ function HorizontalSection({ layers, sectionCanvasRef }) {
         ctx.fillRect(bx, y, bw, h);
       });
 
+      // Rse/Rsi とも設定レイヤー帯の上端。塗りの後に描画して最上段も可視
+      if (layer.surfacetype === "rse") {
+        ctx.beginPath(); ctx.setLineDash([8, 4]);
+        ctx.strokeStyle = "#2563eb"; ctx.lineWidth = 2;
+        ctx.moveTo(0, y + 0.5); ctx.lineTo(SECTION_CW, y + 0.5);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (layer.surfacetype === "rsi") {
+        ctx.beginPath(); ctx.setLineDash([8, 4]);
+        ctx.strokeStyle = "#dc2626"; ctx.lineWidth = 2;
+        ctx.moveTo(0, y + 0.5); ctx.lineTo(SECTION_CW, y + 0.5);
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+
       y += h;
     });
     if (sectionCanvasRef) sectionCanvasRef.current = canvasRef.current;
@@ -616,7 +643,7 @@ function HorizontalSection({ layers, sectionCanvasRef }) {
 // 固定荷重パネル（縦積み・横向き断面図付き）
 // ============================================================
 function DeadLoadPanel({ result, layers }) {
-  const { rows, total } = result;
+  const { rows, totalCeiled } = result;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -675,7 +702,7 @@ function DeadLoadPanel({ result, layers }) {
             <tr style={{ borderTop: "1px solid var(--color-border-secondary)", background: "var(--color-background-secondary)" }}>
               <td colSpan={4} style={{ padding: "8px 10px", fontWeight: 500, fontSize: 12 }}>合計</td>
               <td style={{ padding: "8px 10px", textAlign: "right", fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 500 }}>
-                {total.toFixed(2)}
+                {totalCeiled}
               </td>
             </tr>
           </tfoot>
@@ -684,7 +711,7 @@ function DeadLoadPanel({ result, layers }) {
         {/* 合計荷重ハイライト */}
         <div style={{ padding: "10px 14px", background: "var(--color-background-secondary)", borderTop: "1px solid var(--color-border-secondary)", display: "flex", alignItems: "baseline", gap: 8 }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 16, fontWeight: 500, color: "var(--color-text-primary)" }}>
-            {total.toFixed(2)}
+            {totalCeiled}
           </span>
           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>N/m²</span>
           <span style={{ fontSize: 11, color: "var(--color-text-secondary)", marginLeft: 4 }}>固定荷重合計</span>
@@ -700,7 +727,7 @@ function DeadLoadPanel({ result, layers }) {
 export default function InsulationCalcPage() {
   const [materialDb, setMaterialDb] = useState(INITIAL_MATERIAL_DB);
   const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
-  const [densityDb, setDensityDb] = useState(INITIAL_DENSITY_DB);
+  const [densityDb, setDensityDb] = useState(() => normalizeDensityDbEntries(undefined));
   const [showDbPanel, setShowDbPanel] = useState(true);
   /** null | "rename" | "add" — カテゴリ名変更・追加はモーダルで入力 */
   const [categoryModal, setCategoryModal] = useState(null);
@@ -740,7 +767,11 @@ export default function InsulationCalcPage() {
   });
 
   const updateLayer = useCallback((i, val) => {
-    setLayers((prev) => { const next = [...prev]; next[i] = val; return next; });
+    setLayers((prev) => {
+      const next = [...prev];
+      next[i] = val;
+      return sanitizeRsSurfaceLayers(next);
+    });
     setIsDirty(true);
   }, []);
   const moveLayer = useCallback((from, to) => {
@@ -749,7 +780,7 @@ export default function InsulationCalcPage() {
       const next = [...prev];
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      return next;
+      return sanitizeRsSurfaceLayers(next);
     });
     setIsDirty(true);
   }, []);
@@ -788,7 +819,7 @@ export default function InsulationCalcPage() {
     const schemaVersion = Number(raw?.schemaVersion || 1);
     const rawMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
     const loadedMaterialDb = normalizeMaterialDbEntries(rawMaterialDb);
-    const loadedDensityDb = raw?.densityDb && typeof raw.densityDb === "object" ? raw.densityDb : INITIAL_DENSITY_DB;
+    const loadedDensityDb = normalizeDensityDbEntries(raw?.densityDb);
 
     let loadedLayers = Array.isArray(raw?.layers) ? raw.layers : initialLayers;
     loadedLayers = loadedLayers.map((layer, i) => {
@@ -808,7 +839,7 @@ export default function InsulationCalcPage() {
       schemaVersion,
       fullName: raw?.fullName || "",
       memo: raw?.memo || "",
-      layers: loadedLayers,
+      layers: sanitizeRsSurfaceLayers(loadedLayers),
       surfacePart: raw?.surfacePart || "外壁（通気層等）",
       bridgeRatios: loadedBridgeRatios,
       materialDb: loadedMaterialDb,
@@ -1099,10 +1130,10 @@ export default function InsulationCalcPage() {
   // ── 新規作成 ──
   function handleNew() {
     if (isDirty && !window.confirm("未保存の変更があります。新規作成しますか？")) return;
-    setLayers(initialLayers);
-    setSurfacePart("外壁(通気層)");
+    setLayers(sanitizeRsSurfaceLayers(initialLayers));
+    setSurfacePart("外壁（通気層等）");
     setMaterialDb(INITIAL_MATERIAL_DB);
-    setDensityDb(INITIAL_DENSITY_DB);
+    setDensityDb(normalizeDensityDbEntries(undefined));
     setEditingCategory(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
     setFileName({ part: "", midName: "", number: "", memo: "" });
     setIsDirty(false);
@@ -1329,9 +1360,13 @@ export default function InsulationCalcPage() {
                               type="number"
                               step="0.001"
                               min="0"
-                              value={item.λ}
-                              onChange={(e) => updateMaterialLambda(editingCategory, item.value, parseFloat(e.target.value) || 0)}
+                              value={item.λ === null || item.λ === undefined ? "" : item.λ}
+                              onChange={(e) => {
+                                const v = e.target.value.trim();
+                                updateMaterialLambda(editingCategory, item.value, v === "" ? null : parseFloat(v) || 0);
+                              }}
                               style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                              title="空欄にすると λ なし（熱抵抗に含めません）"
                             />
                           </label>
                           <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1560,8 +1595,11 @@ export default function InsulationCalcPage() {
             <div style={{ padding: 12 }}>
               <HorizontalSection layers={layers} sectionCanvasRef={sectionCanvasRef} />
               <div style={legendStyle}>
-                <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#2563eb", marginRight: 3, verticalAlign: "middle" }} />Rse</span>
-                <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#dc2626", marginRight: 3, verticalAlign: "middle" }} />Rsi</span>
+                <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#2563eb", marginRight: 3, verticalAlign: "middle" }} />Rse（帯の上端）</span>
+                <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#dc2626", marginRight: 3, verticalAlign: "middle" }} />Rsi（帯の上端）</span>
+              </div>
+              <div style={{ fontSize: 9, color: "var(--color-text-secondary)", marginTop: 4, lineHeight: 1.35 }}>
+                上＝室外。Rse/Rsi は各1レイヤーのみ・Rse は必ず Rsi より上の行。重複や逆順は自動解除されます。
               </div>
             </div>
           </div>
@@ -1625,7 +1663,7 @@ export default function InsulationCalcPage() {
               <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 12, fontWeight: 500 }}>固定荷重計算</span>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 500, color: "#7c2d12" }}>
-                  {dlResult.total.toFixed(1)} N/m²
+                  {dlResult.totalCeiled ?? Math.ceil(dlResult.total)} N/m²
                 </span>
               </div>
               <div style={{ padding: 12 }}>

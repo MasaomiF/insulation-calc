@@ -5,7 +5,7 @@
  * value は全カテゴリで一意（比重 DB のキー）。保存 JSON の material と一致させる。
  */
 
-/** @typedef {{ category: string, value: string, λ: number, ρ?: number, memo: string }} MaterialCatalogRow */
+/** @typedef {{ category: string, value: string, λ: number | null, ρ?: number, memo: string }} MaterialCatalogRow */
 
 /** 参照表記の短縮形 */
 const T1 = "国交省 Ver.26 付録A 表1";
@@ -34,6 +34,7 @@ export const MATERIAL_CATALOG = [
   { category: "よく使う材料", value: "硬質ウレタンフォーム2種2号D", λ: 0.021, ρ: 0.025, memo: `${T2} 硬質ウレタン 2種 2号（JIS A9521 ※9）` },
   { category: "よく使う材料", value: "硬質ウレタンフォーム", λ: 0.02, ρ: 0.025, memo: `${T1} 表1 硬質ウレタンフォーム 2種 2号 0.024 に近い代表値（要確認）` },
   { category: "よく使う材料", value: "フォームグラス", λ: 0.052, ρ: 0.14, memo: "セルラー硝子系断熱材の代表値（告示表外。カタログ要確認）" },
+  { category: "よく使う材料", value: "余力", λ: null, ρ: 10 / 9.81, memo: "λ なし。厚さ1mm・DL充足率1のとき荷重10N/m²（ρ×1000×d×9.81×ratio）" },
 
   // ── 岩石・土壌（表1） ──
   { category: "岩石・土壌", value: "岩石", λ: 3.1, ρ: 2.7, memo: `${T1} 岩石・土壌` },

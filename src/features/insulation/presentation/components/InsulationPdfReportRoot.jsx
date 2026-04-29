@@ -13,7 +13,7 @@ function uRowCells(row, i, colorMap) {
   const isRsi = row.label.startsWith("室内側");
   const isRse = row.label.startsWith("外気側");
   const isSurface = isRsi || isRse;
-  const lam = isSurface ? "—" : typeof row.λ === "number" ? String(row.λ) : row.λ;
+  const lam = isSurface ? "—" : row.λ == null ? "—" : typeof row.λ === "number" ? String(row.λ) : String(row.λ);
   const d = isSurface ? "—" : row.d.toFixed(3);
   const flag = isSurface ? "—" : row.flag;
   const rIns = isSurface
@@ -247,7 +247,7 @@ export const InsulationPdfReportRoot = forwardRef(function InsulationPdfReportRo
 
           <div style={box}>
             <div style={h2}>固定荷重</div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#7c2d12", marginBottom: 4 }}>計 {dlResult.total.toFixed(2)} N/m²</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#7c2d12", marginBottom: 4 }}>計 {dlResult.totalCeiled ?? Math.ceil(dlResult.total)} N/m²</div>
             <table style={tableBase}>
               <colgroup>
                 <col style={{ width: "40%" }} />

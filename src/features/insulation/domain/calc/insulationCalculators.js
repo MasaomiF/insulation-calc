@@ -124,5 +124,7 @@ export function calculateDeadLoad(layers, densityDb) {
     });
   });
 
-  return { rows, total };
+  /** 画面・帳票の合計表示用（小数は切り上げて整数 N/m²） */
+  const totalCeiled = Math.ceil(total);
+  return { rows, total, totalCeiled };
 }
