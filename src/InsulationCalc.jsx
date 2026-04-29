@@ -129,14 +129,71 @@ const DENSITY_DB = {
   "窯業系サイディング": 1.2,
 };
 
+// ============================================================
+// 表面熱伝達抵抗（国土交通省 Ver.15 表3.1・3.2）
+// ============================================================
 const RSI_RSE_VALUES = [
-  { part: "屋根(外気)", rsi: 0.09, rse: 0.04 },
-  { part: "屋根(通気層)", rsi: 0.09, rse: 0.09 },
-  { part: "天井(小屋裏)", rsi: 0.09, rse: 0.09 },
-  { part: "外壁(外気)", rsi: 0.11, rse: 0.04 },
-  { part: "外壁(通気層)", rsi: 0.11, rse: 0.11 },
-  { part: "床(外気)", rsi: 0.15, rse: 0.04 },
-  { part: "床(床下)", rsi: 0.15, rse: 0.15 },
+  // 屋根
+  { part: "屋根（外気に直接接する）",     rsi: 0.09, rse: 0.04 },
+  { part: "屋根（通気層等）",              rsi: 0.09, rse: 0.09 },
+  // 天井
+  { part: "天井（小屋裏等）",              rsi: 0.09, rse: 0.09 },
+  // 外壁
+  { part: "外壁（外気に直接接する）",      rsi: 0.11, rse: 0.04 },
+  { part: "外壁（通気層等）",              rsi: 0.11, rse: 0.11 },
+  // 床
+  { part: "床（外気に直接接する）",        rsi: 0.15, rse: 0.04 },
+  { part: "床（床裏等）",                  rsi: 0.15, rse: 0.15 },
+  // 界壁・界床（表3.2）
+  { part: "界壁",                          rsi: 0.11, rse: 0.11 },
+  { part: "上階側界床",                    rsi: 0.09, rse: 0.09 },
+  { part: "下階側界床",                    rsi: 0.15, rse: 0.15 },
+];
+
+// ============================================================
+// 熱橋面積比プリセット（国土交通省 住宅・住戸の外皮性能計算プログラム Ver.15）
+// ratios: [熱橋1, 熱橋2, 熱橋3]  熱橋が1種類の場合は[x, 0, 0]
+// ============================================================
+const BRIDGE_RATIO_PRESETS = [
+  // ── Wall（外壁・界壁） ──
+  // 表4-1 軸組構法 柱・間柱間に断熱する場合
+  { id: "wall-jikuglm-fill", group: "Wall", label: "軸組構法・充填断熱（柱間柱間）", ratios: [0.17, 0, 0] },
+  // 表4-2 軸組構法 付加断熱（横下地） 熱橋1=構造部材等+付加断熱, 熱橋2=柱間+付加断熱層内
+  { id: "wall-jiku-add-yoko", group: "Wall", label: "軸組構法・充填+付加断熱（横下地）", ratios: [0.12, 0.05, 0.08] },
+  // 表4-2 軸組構法 付加断熱（縦下地）
+  { id: "wall-jiku-add-tate", group: "Wall", label: "軸組構法・充填+付加断熱（縦下地）", ratios: [0.04, 0.13, 0.04] },
+  // 表4-1 枠組壁工法 たて枠間に断熱する場合
+  { id: "wall-waku-fill", group: "Wall", label: "枠組壁工法・充填断熱（たて枠間）", ratios: [0.23, 0, 0] },
+  // 表4-3 枠組壁工法 付加断熱（横下地）
+  { id: "wall-waku-add-yoko", group: "Wall", label: "枠組壁工法・充填+付加断熱（横下地）", ratios: [0.14, 0.06, 0.10] },
+  // 表4-3 枠組壁工法 付加断熱（縦下地）
+  { id: "wall-waku-add-tate", group: "Wall", label: "枠組壁工法・充填+付加断熱（縦下地）", ratios: [0.02, 0.21, 0.01] },
+
+  // ── Ceiling（天井） ──
+  // 表5 桁・梁間に断熱する場合
+  { id: "ceiling-keta", group: "Ceiling", label: "天井・桁梁間断熱", ratios: [0.13, 0, 0] },
+
+  // ── Floor（床） ──
+  // 表3-1 軸組構法 床梁工法・根太間断熱
+  { id: "floor-jiku-neta", group: "Floor", label: "軸組構法・床梁工法（根太間断熱）", ratios: [0.20, 0, 0] },
+  // 表3-1 軸組構法 束立大引工法 根太間断熱
+  { id: "floor-jiku-neta2", group: "Floor", label: "軸組構法・束立大引工法（根太間断熱）", ratios: [0.20, 0, 0] },
+  // 表3-1 軸組構法 束立大引工法 大引間断熱
+  { id: "floor-jiku-ooiki", group: "Floor", label: "軸組構法・束立大引工法（大引間断熱）", ratios: [0.15, 0, 0] },
+  // 表3-2 根太間+大引間断熱
+  { id: "floor-jiku-both", group: "Floor", label: "軸組構法・根太間+大引間断熱", ratios: [0.12, 0.13, 0.03] },
+  // 表3-1 軸組構法 剛床工法
+  { id: "floor-jiku-gou", group: "Floor", label: "軸組構法・剛床工法", ratios: [0.15, 0, 0] },
+  // 表3-1 軸組構法 床梁土台同面工法
+  { id: "floor-jiku-doudou", group: "Floor", label: "軸組構法・床梁土台同面工法", ratios: [0.30, 0, 0] },
+  // 表3-1 枠組壁工法 根太間断熱
+  { id: "floor-waku-neta", group: "Floor", label: "枠組壁工法・根太間断熱", ratios: [0.13, 0, 0] },
+
+  // ── Roof（屋根） ──
+  // 表6-1 たるき間断熱
+  { id: "roof-taruki", group: "Roof", label: "屋根・たるき間断熱", ratios: [0.14, 0, 0] },
+  // 表6-2 たるき間断熱+付加断熱（横下地）
+  { id: "roof-taruki-add", group: "Roof", label: "屋根・たるき間+付加断熱（横下地）", ratios: [0.12, 0.01, 0.08] },
 ];
 
 const COLOR_MAP = {
@@ -884,7 +941,7 @@ function DeadLoadPanel({ result, layers }) {
 // ============================================================
 export default function InsulationCalc() {
   const [layers, setLayers] = useState(initialLayers);
-  const [surfacePart, setSurfacePart] = useState("外壁(通気層)");
+  const [surfacePart, setSurfacePart] = useState("外壁（通気層等）");
   const [activeTab, setActiveTab] = useState("section");
   const [bridgeRatios, setBridgeRatios] = useState(initialBridgeRatios);
 
@@ -969,7 +1026,7 @@ export default function InsulationCalc() {
       try {
         const data = JSON.parse(ev.target.result);
         setLayers(data.layers);
-        setSurfacePart(data.surfacePart || "外壁(通気層)");
+        setSurfacePart(data.surfacePart || "外壁（通気層等）");
         if (data.bridgeRatios) setBridgeRatios(data.bridgeRatios);
         const parts = (data.fullName || "").split("-");
         setFileName({ part: parts[0] || "", midName: parts[1] || "", number: parts[2] || "", memo: data.memo || "" });
@@ -1037,7 +1094,21 @@ export default function InsulationCalc() {
           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>部位:</span>
           <select value={surfacePart} onChange={(e) => setSurfacePart(e.target.value)}
             style={{ fontSize: 12, padding: "3px 8px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-secondary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>
-            {RSI_RSE_VALUES.map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            <optgroup label="屋根">
+              {RSI_RSE_VALUES.filter(r => r.part.startsWith("屋根")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            </optgroup>
+            <optgroup label="天井">
+              {RSI_RSE_VALUES.filter(r => r.part.startsWith("天井")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            </optgroup>
+            <optgroup label="外壁">
+              {RSI_RSE_VALUES.filter(r => r.part.startsWith("外壁")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            </optgroup>
+            <optgroup label="床">
+              {RSI_RSE_VALUES.filter(r => r.part.startsWith("床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            </optgroup>
+            <optgroup label="界壁・界床">
+              {RSI_RSE_VALUES.filter(r => r.part.startsWith("界") || r.part.includes("界床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+            </optgroup>
           </select>
           <span style={{ fontSize: 11, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}>
             Rsi={surfaceData.rsi} / Rse={surfaceData.rse}
@@ -1144,6 +1215,31 @@ export default function InsulationCalc() {
               <span style={{ fontSize: 12, fontWeight: 500 }}>熱橋面積比（U値計算用）</span>
             </div>
             <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+
+              {/* プリセット選択 */}
+              <div>
+                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>プリセット（国土交通省 Ver.15 表3〜6）</div>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    const preset = BRIDGE_RATIO_PRESETS.find((p) => p.id === e.target.value);
+                    if (preset) { setBridgeRatios([...preset.ratios]); setIsDirty(true); }
+                    e.target.value = "";
+                  }}
+                  style={{ ...inpStyle, fontSize: 11 }}
+                >
+                  <option value="">── プリセットを選択 ──</option>
+                  {["Wall", "Ceiling", "Floor", "Roof"].map((group) => (
+                    <optgroup key={group} label={group}>
+                      {BRIDGE_RATIO_PRESETS.filter((p) => p.group === group).map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}　熱橋={p.ratios.filter(r=>r>0).map(r=>r.toFixed(2)).join("+")} / 断熱={(1-p.ratios.reduce((s,r)=>s+r,0)).toFixed(2)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
               {/* 断熱部は自動表示 */}
               <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>断熱部</span>
