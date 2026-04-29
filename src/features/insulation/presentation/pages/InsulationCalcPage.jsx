@@ -2,135 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { UValuePanel } from "../components/UValuePanel";
 import { useInsulationCalc } from "../hooks/useInsulationCalc";
 import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
-
-// ============================================================
-// λデータベース（_部位別熱貫流率_new.xlsx「材料種別の熱伝導率」）
-// ============================================================
-const MATERIAL_DB = {
-  "よく使う材料": [
-    { label: "せっこうボード(GB-R)", value: "せっこうボード(GB-R)", λ: 0.22 },
-    { label: "モイス（ケイ酸カルシウム板）", value: "モイス（ケイ酸カルシウム板）", λ: 0.24 },
-    { label: "吹込み用セルローズファイバー", value: "吹込み用セルローズファイバー", λ: 0.04 },
-    { label: "ｲﾝｼｭﾚｰｼｮﾝﾌｧｲﾊﾞｰ断熱材(ﾌｧｲﾊﾞｰﾎﾞｰﾄﾞ)", value: "ｲﾝｼｭﾚｰｼｮﾝﾌｧｲﾊﾞｰ断熱材(ﾌｧｲﾊﾞｰﾎﾞｰﾄﾞ)", λ: 0.052 },
-    { label: "押出法ポリスチレンフォーム3種b-A", value: "押出法ポリスチレンフォーム3種b-A", λ: 0.028 },
-    { label: "ﾌｪﾉｰﾙﾌｫｰﾑ断熱材1種2号CⅡ", value: "ﾌｪﾉｰﾙﾌｫｰﾑ断熱材1種2号CⅡ", λ: 0.02 },
-    { label: "ウォール180", value: "ウォール180", λ: 0.042 },
-    { label: "フォームライトSL100", value: "フォームライトSL100", λ: 0.0343 },
-    { label: "フォームライトSL", value: "フォームライトSL", λ: 0.034 },
-    { label: "あんしん", value: "あんしん", λ: 0.17 },
-    { label: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種3", value: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種3", λ: 0.04 },
-    { label: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1,2", value: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1,2", λ: 0.034 },
-    { label: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1h", value: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1h", λ: 0.021 },
-    { label: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材 B種", value: "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材 B種", λ: 0.026 },
-    { label: "天然木材", value: "天然木材", λ: 0.12 },
-    { label: "合板", value: "合板", λ: 0.16 },
-    { label: "ダイライト（火山性ガラス質複層板）", value: "ダイライト（火山性ガラス質複層板）", λ: 0.13 },
-    { label: "硬質ウレタンフォーム2種2号D", value: "硬質ウレタンフォーム2種2号D", λ: 0.021 },
-    { label: "硬質ウレタンフォーム", value: "硬質ウレタンフォーム", λ: 0.02 },
-    { label: "フォームグラス", value: "フォームグラス", λ: 0.052 },
-  ],
-  "コンクリート系": [
-    { label: "コンクリート", value: "コンクリート", λ: 1.6 },
-    { label: "軽量コンクリート", value: "軽量コンクリート", λ: 0.8 },
-  ],
-  "金属": [
-    { label: "鋼", value: "鋼", λ: 55.0 },
-    { label: "アルミニウム", value: "アルミニウム", λ: 210.0 },
-    { label: "銅", value: "銅", λ: 370.0 },
-    { label: "ステンレス", value: "ステンレス", λ: 15.0 },
-  ],
-  "非木質系壁材・下地": [
-    { label: "せっこうプラスター", value: "せっこうプラスター", λ: 0.6 },
-    { label: "漆喰", value: "漆喰", λ: 0.74 },
-    { label: "土壁", value: "土壁", λ: 0.69 },
-    { label: "ガラス", value: "ガラス", λ: 1.0 },
-    { label: "アクリルガラス", value: "アクリルガラス", λ: 0.2 },
-    { label: "タイル", value: "タイル", λ: 1.3 },
-    { label: "れんが", value: "れんが", λ: 0.64 },
-    { label: "ロックウール化粧吸音板", value: "ロックウール化粧吸音板", λ: 0.06 },
-    { label: "セメント・モルタル", value: "セメント・モルタル", λ: 1.5 },
-    { label: "窯業系サイディング", value: "窯業系サイディング", λ: 0.35 },
-  ],
-  "グラスウール": [
-    { label: "高性能グラスウール HG16-36", value: "高性能グラスウール HG16-36", λ: 0.036 },
-    { label: "高性能グラスウール HG16-38", value: "高性能グラスウール HG16-38", λ: 0.038 },
-    { label: "高性能グラスウール HG24-35", value: "高性能グラスウール HG24-35", λ: 0.035 },
-    { label: "高性能グラスウール", value: "高性能グラスウール", λ: 0.033 },
-    { label: "高性能グラスウール断熱材24K相当", value: "高性能グラスウール断熱材24K相当", λ: 0.036 },
-  ],
-  "ロックウール": [
-    { label: "ロックウールMA", value: "ロックウールMA", λ: 0.038 },
-  ],
-  "木質系": [
-    { label: "MDF", value: "MDF", λ: 0.12 },
-  ],
-  "EPS": [
-    { label: "ビーズ法ポリスチレンフォーム1号", value: "ビーズ法ポリスチレンフォーム1号", λ: 0.034 },
-    { label: "ビーズ法ポリスチレンフォーム2号", value: "ビーズ法ポリスチレンフォーム2号", λ: 0.036 },
-    { label: "ビーズ法ポリスチレンフォーム3号", value: "ビーズ法ポリスチレンフォーム3号", λ: 0.038 },
-    { label: "ラムダボードNB18", value: "ラムダボードNB18", λ: 0.033 },
-  ],
-  "ウレタン系": [
-    { label: "アクアフォームLITE", value: "アクアフォームLITE", λ: 0.038 },
-    { label: "アクアフォーム", value: "アクアフォーム", λ: 0.033 },
-    { label: "スタイロエースⅡ", value: "スタイロエースⅡ", λ: 0.028 },
-    { label: "ネオマフォーム", value: "ネオマフォーム", λ: 0.02 },
-    { label: "スタイロフォーム", value: "スタイロフォーム", λ: 0.036 },
-    { label: "スタイロフォームAT", value: "スタイロフォームAT", λ: 0.028 },
-  ],
-};
-
-const CATEGORIES = Object.keys(MATERIAL_DB);
-
-// ============================================================
-// 比重データベース（_固定荷重.xlsx「材料種別の比重」 g/cm³）
-// ============================================================
-const DENSITY_DB = {
-  "吹込み用セルローズファイバー": 0.055,
-  "ｲﾝｼｭﾚｰｼｮﾝﾌｧｲﾊﾞｰ断熱材(ﾌｧｲﾊﾞｰﾎﾞｰﾄﾞ)": 0.15,
-  "押出法ポリスチレンフォーム3種b-A": 0.036,
-  "ネオマフォーム": 0.027,
-  "ウォール180": 0.18,
-  "フォームライトSL100": 0.011,
-  "フォームライトSL": 0.011,
-  "ロックウールMA": 0.03,
-  "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種3": 0.02,
-  "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1h": 0.026,
-  "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材A種1,2": 0.023,
-  "吹付け硬質ｳﾚﾀﾝﾌｫｰﾑ断熱材 B種": 0.026,
-  "アクアフォームLITE": 0.011,
-  "アクアフォーム": 0.02,
-  "スタイロエースⅡ": 0.036,
-  "スタイロフォーム": 0.03,
-  "スタイロフォームAT": 0.036,
-  "ﾌｪﾉｰﾙﾌｫｰﾑ断熱材1種2号CⅡ": 0.04,
-  "硬質ウレタンフォーム": 0.025,
-  "硬質ウレタンフォーム2種2号D": 0.025,
-  "せっこうボード(GB-R)": 0.8,
-  "モイス（ケイ酸カルシウム板）": 1.1,
-  "合板": 0.58,
-  "天然木材": 0.55,
-  "あんしん": 0.92,
-  "ダイライト（火山性ガラス質複層板）": 0.78,
-  "MDF": 0.78,
-  "高性能グラスウール HG16-36": 0.016,
-  "高性能グラスウール HG16-38": 0.016,
-  "高性能グラスウール HG24-35": 0.024,
-  "高性能グラスウール": 0.016,
-  "高性能グラスウール断熱材24K相当": 0.024,
-  "ラムダボードNB18": 0.033,
-  "ビーズ法ポリスチレンフォーム1号": 0.03,
-  "ビーズ法ポリスチレンフォーム2号": 0.025,
-  "ビーズ法ポリスチレンフォーム3号": 0.02,
-  "コンクリート": 2.3,
-  "軽量コンクリート": 1.4,
-  "鋼": 7.85,
-  "アルミニウム": 2.7,
-  "漆喰": 1.0,
-  "タイル": 1.0,
-  "セメント・モルタル": 2.2,
-  "窯業系サイディング": 1.2,
-};
+import { INITIAL_DENSITY_DB, INITIAL_MATERIAL_DB } from "../../domain/constants/materialDatabase";
 
 // ============================================================
 // 表面熱伝達抵抗（国土交通省 Ver.15 表3.1・3.2）
@@ -253,13 +125,14 @@ function defaultLayer(i) {
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
+const SAVE_SCHEMA_VERSION = 2;
 
-function getLambda(category, material) {
-  return resolveLambda(MATERIAL_DB, category, material);
+function getLambda(materialDb, category, material) {
+  return resolveLambda(materialDb, category, material);
 }
 
-function getDensityKgM3(material) {
-  return resolveDensityKgM3(DENSITY_DB, material);
+function getDensityKgM3(densityDb, material) {
+  return resolveDensityKgM3(densityDb, material);
 }
 
 // ============================================================
@@ -324,10 +197,11 @@ const S = {
   lbl: { fontSize: 10, color: "var(--color-text-secondary)", whiteSpace: "nowrap" },
 };
 
-function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove }) {
-  const mats = mat.category ? (MATERIAL_DB[mat.category] || []) : [];
-  const λ = mat.materialType === "solid" ? getLambda(mat.category, mat.material) : null;
-  const rho = mat.materialType === "solid" ? getDensityKgM3(mat.material) : 0;
+function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove, materialDb, densityDb }) {
+  const categories = Object.keys(materialDb);
+  const mats = mat.category ? (materialDb[mat.category] || []) : [];
+  const λ = mat.materialType === "solid" ? getLambda(materialDb, mat.category, mat.material) : null;
+  const rho = mat.materialType === "solid" ? getDensityKgM3(densityDb, mat.material) : 0;
 
   return (
     <div style={{
@@ -358,7 +232,7 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove }) {
       {mat.materialType === "solid" && (<>
         <select value={mat.category || ""} onChange={(e) => onChange({ ...mat, category: e.target.value, material: null })} style={S.sel}>
           <option value="">カテゴリ</option>
-          {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select value={mat.material || ""} onChange={(e) => onChange({ ...mat, material: e.target.value })} style={S.sel}>
           <option value="">材料選択</option>
@@ -370,12 +244,80 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove }) {
         <div style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>R = 0.09 m²K/W</div>
       )}
 
-      {/* 色 */}
-      <select value={mat.color || ""} onChange={(e) => onChange({ ...mat, color: e.target.value })}
-        style={{ ...S.sel, background: mat.color ? COLOR_MAP[mat.color] : "var(--color-background-primary)" }}>
-        <option value="">色</option>
-        {Object.entries(COLOR_MAP).map(([k]) => <option key={k} value={k} style={{ background: COLOR_MAP[k] }}>{k}</option>)}
-      </select>
+      {/* 色（ポップアップ式） */}
+      <details style={{ position: "relative" }}>
+        <summary style={{
+          ...S.sel,
+          listStyle: "none",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{
+              width: 12,
+              height: 12,
+              borderRadius: 3,
+              border: "0.5px solid rgba(0,0,0,0.2)",
+              background: mat.color ? COLOR_MAP[mat.color] : "var(--color-background-secondary)",
+              display: "inline-block",
+            }} />
+            <span>{mat.color || "色を選ぶ"}</span>
+          </span>
+          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>▼</span>
+        </summary>
+        <div style={{
+          position: "absolute",
+          zIndex: 20,
+          top: "calc(100% + 4px)",
+          left: 0,
+          right: 0,
+          border: "0.5px solid var(--color-border-secondary)",
+          borderRadius: 6,
+          background: "var(--color-background-primary)",
+          padding: 6,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+        }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(8, minmax(0, 1fr))", gap: 4 }}>
+            <button
+              type="button"
+              onClick={() => onChange({ ...mat, color: null })}
+              title="色なし"
+              style={{
+                height: 16,
+                borderRadius: 3,
+                border: mat.color == null ? "2px solid #185FA5" : "0.5px solid var(--color-border-secondary)",
+                background: "var(--color-background-secondary)",
+                cursor: "pointer",
+                padding: 0,
+                fontSize: 9,
+                color: "var(--color-text-secondary)",
+                lineHeight: "14px",
+              }}
+            >
+              ×
+            </button>
+            {Object.entries(COLOR_MAP).map(([k, v]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => onChange({ ...mat, color: k })}
+                title={k}
+                style={{
+                  height: 16,
+                  borderRadius: 3,
+                  border: mat.color === k ? "2px solid #185FA5" : "0.5px solid rgba(0,0,0,0.2)",
+                  background: v,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </details>
 
       {/* 比率入力：DL充足率のみ */}
       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 5px", alignItems: "center" }}>
@@ -401,7 +343,7 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove }) {
 // ============================================================
 // レイヤー行
 // ============================================================
-function LayerRow({ layer, index, onChange }) {
+function LayerRow({ layer, index, onChange, onMoveUp, onMoveDown, canMoveUp, canMoveDown, materialDb, densityDb }) {
   const update = (key, val) => onChange({ ...layer, [key]: val });
 
   const updateMat = (mi, newMat) => {
@@ -432,6 +374,42 @@ function LayerRow({ layer, index, onChange }) {
           <input type="checkbox" checked={layer.switchOn} onChange={(e) => update("switchOn", e.target.checked)} style={{ accentColor: "#185FA5" }} />
           <span style={{ fontSize: 12, fontWeight: 500 }}>Layer {index + 1}</span>
         </label>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            type="button"
+            onClick={onMoveUp}
+            disabled={!canMoveUp}
+            title="上に移動"
+            style={{
+              fontSize: 10,
+              padding: "1px 6px",
+              borderRadius: 4,
+              border: "0.5px solid var(--color-border-secondary)",
+              background: "var(--color-background-primary)",
+              color: canMoveUp ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+              cursor: canMoveUp ? "pointer" : "not-allowed",
+            }}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            onClick={onMoveDown}
+            disabled={!canMoveDown}
+            title="下に移動"
+            style={{
+              fontSize: 10,
+              padding: "1px 6px",
+              borderRadius: 4,
+              border: "0.5px solid var(--color-border-secondary)",
+              background: "var(--color-background-primary)",
+              color: canMoveDown ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+              cursor: canMoveDown ? "pointer" : "not-allowed",
+            }}
+          >
+            ↓
+          </button>
+        </div>
 
         {layer.switchOn && (<>
           <select value={layer.surfacetype} onChange={(e) => update("surfacetype", e.target.value)}
@@ -466,7 +444,9 @@ function LayerRow({ layer, index, onChange }) {
             <MaterialCard key={mi} mat={mat} isFirst={mi === 0}
               onChange={(val) => updateMat(mi, val)}
               onRemove={() => removeMat(mi)}
-              canRemove={mi > 0} />
+              canRemove={mi > 0}
+              materialDb={materialDb}
+              densityDb={densityDb} />
           ))}
         </div>
       )}
@@ -694,6 +674,15 @@ function DeadLoadPanel({ result, layers }) {
 // メインアプリ
 // ============================================================
 export default function InsulationCalcPage() {
+  const [materialDb, setMaterialDb] = useState(INITIAL_MATERIAL_DB);
+  const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
+  const [densityDb, setDensityDb] = useState(INITIAL_DENSITY_DB);
+  const [showDbPanel, setShowDbPanel] = useState(true);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [renameCategoryName, setRenameCategoryName] = useState("");
+  const [newMaterialName, setNewMaterialName] = useState("");
+  const [newMaterialLambda, setNewMaterialLambda] = useState(0.04);
+  const [newMaterialDensity, setNewMaterialDensity] = useState(0.03);
   const [layers, setLayers] = useState(initialLayers);
   const [surfacePart, setSurfacePart] = useState("外壁（通気層等）");
   const [activeTab, setActiveTab] = useState("section");
@@ -711,25 +700,185 @@ export default function InsulationCalcPage() {
     layers,
     surfaceData,
     bridgeRatios,
-    materialDb: MATERIAL_DB,
-    densityDb: DENSITY_DB,
+    materialDb,
+    densityDb,
   });
 
   const updateLayer = useCallback((i, val) => {
     setLayers((prev) => { const next = [...prev]; next[i] = val; return next; });
     setIsDirty(true);
   }, []);
+  const moveLayer = useCallback((from, to) => {
+    setLayers((prev) => {
+      if (to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+    setIsDirty(true);
+  }, []);
 
   const rsiCount = layers.filter((l) => l.surfacetype === "rsi").length;
   const rseCount = layers.filter((l) => l.surfacetype === "rse").length;
   const hasError = rsiCount > 1 || rseCount > 1;
+  const materialCategories = Object.keys(materialDb);
+  const editingMaterials = materialDb[editingCategory] || [];
+
+  useEffect(() => {
+    if (!materialDb[editingCategory]) {
+      setEditingCategory(materialCategories[0] || "");
+    }
+  }, [editingCategory, materialCategories, materialDb]);
+
+  useEffect(() => {
+    setRenameCategoryName(editingCategory);
+  }, [editingCategory]);
 
   const fullName = [fileName.part, fileName.midName, fileName.number].filter(Boolean).join("-") || "無題";
+
+  function createSavePayload(overrides = {}) {
+    return {
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      fullName,
+      memo: fileName.memo,
+      layers,
+      surfacePart,
+      bridgeRatios,
+      materialDb,
+      densityDb,
+      savedAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  function normalizeLoadedData(raw) {
+    const schemaVersion = Number(raw?.schemaVersion || 1);
+    const loadedMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
+    const loadedDensityDb = raw?.densityDb && typeof raw.densityDb === "object" ? raw.densityDb : INITIAL_DENSITY_DB;
+
+    let loadedLayers = Array.isArray(raw?.layers) ? raw.layers : initialLayers;
+    loadedLayers = loadedLayers.map((layer, i) => {
+      const base = defaultLayer(i);
+      const layerMaterials = Array.isArray(layer?.materials) ? layer.materials : base.materials;
+      return {
+        ...base,
+        ...layer,
+        materials: layerMaterials.map((mat) => ({ ...makeMat(), ...mat })),
+      };
+    });
+
+    // 旧データ向け: bridgeRatios が無い場合は初期値を補完
+    const loadedBridgeRatios = Array.isArray(raw?.bridgeRatios) ? raw.bridgeRatios : initialBridgeRatios;
+
+    return {
+      schemaVersion,
+      fullName: raw?.fullName || "",
+      memo: raw?.memo || "",
+      layers: loadedLayers,
+      surfacePart: raw?.surfacePart || "外壁（通気層等）",
+      bridgeRatios: loadedBridgeRatios,
+      materialDb: loadedMaterialDb,
+      densityDb: loadedDensityDb,
+    };
+  }
 
   function showMsg(type, text) {
     setFileMsg({ type, text });
     setTimeout(() => setFileMsg(null), 3000);
   }
+
+  const updateMaterialLambda = useCallback((category, value, nextLambda) => {
+    setMaterialDb((prev) => {
+      const items = prev[category] || [];
+      return {
+        ...prev,
+        [category]: items.map((m) => (m.value === value ? { ...m, λ: nextLambda } : m)),
+      };
+    });
+    setIsDirty(true);
+  }, []);
+  const updateMaterialDensity = useCallback((value, nextDensity) => {
+    setDensityDb((prev) => ({ ...prev, [value]: nextDensity }));
+    setIsDirty(true);
+  }, []);
+  const addCategory = useCallback(() => {
+    const name = newCategoryName.trim();
+    if (!name || materialDb[name]) return;
+    setMaterialDb((prev) => ({ ...prev, [name]: [] }));
+    setEditingCategory(name);
+    setNewCategoryName("");
+    setIsDirty(true);
+  }, [materialDb, newCategoryName]);
+  const renameCategory = useCallback(() => {
+    const nextName = renameCategoryName.trim();
+    if (!editingCategory || !nextName || nextName === editingCategory || materialDb[nextName]) return;
+    setMaterialDb((prev) => {
+      const { [editingCategory]: currentItems = [], ...rest } = prev;
+      return { ...rest, [nextName]: currentItems };
+    });
+    setLayers((prev) =>
+      prev.map((layer) => ({
+        ...layer,
+        materials: layer.materials.map((mat) =>
+          mat.category === editingCategory ? { ...mat, category: nextName } : mat
+        ),
+      }))
+    );
+    setEditingCategory(nextName);
+    setIsDirty(true);
+  }, [editingCategory, materialDb, renameCategoryName]);
+  const moveMaterialToCategory = useCallback((materialValue, targetCategory) => {
+    if (!targetCategory) return;
+    let sourceCategory = "";
+    let movingItem = null;
+    Object.entries(materialDb).forEach(([category, items]) => {
+      if (movingItem) return;
+      const found = items.find((item) => item.value === materialValue);
+      if (found) {
+        sourceCategory = category;
+        movingItem = found;
+      }
+    });
+    if (!movingItem || sourceCategory === targetCategory) return;
+    if ((materialDb[targetCategory] || []).some((item) => item.value === materialValue)) return;
+
+    setMaterialDb((prev) => {
+      const next = { ...prev };
+      next[sourceCategory] = (next[sourceCategory] || []).filter((item) => item.value !== materialValue);
+      next[targetCategory] = [...(next[targetCategory] || []), movingItem];
+      return next;
+    });
+    setLayers((prev) =>
+      prev.map((layer) => ({
+        ...layer,
+        materials: layer.materials.map((mat) =>
+          mat.material === materialValue ? { ...mat, category: targetCategory } : mat
+        ),
+      }))
+    );
+    setIsDirty(true);
+  }, [materialDb]);
+  const addMaterialToCategory = useCallback(() => {
+    const name = newMaterialName.trim();
+    if (!editingCategory || !name) return;
+    const exists = Object.values(materialDb).some((items) => items.some((item) => item.value === name));
+    if (exists) return;
+    const nextLambda = parseFloat(newMaterialLambda) || 0;
+    const nextDensity = parseFloat(newMaterialDensity) || 0;
+    setMaterialDb((prev) => ({
+      ...prev,
+      [editingCategory]: [
+        ...(prev[editingCategory] || []),
+        { label: name, value: name, λ: nextLambda },
+      ],
+    }));
+    setDensityDb((prev) => ({ ...prev, [name]: nextDensity }));
+    setNewMaterialName("");
+    setNewMaterialLambda(0.04);
+    setNewMaterialDensity(0.03);
+    setIsDirty(true);
+  }, [editingCategory, materialDb, newMaterialDensity, newMaterialLambda, newMaterialName]);
 
   // ── JSONをダウンロード ──
   function downloadJSON(data, name) {
@@ -747,7 +896,7 @@ export default function InsulationCalcPage() {
     if (!fileName.part && !fileName.midName && !fileName.number) {
       showMsg("err", "ファイル名を入力してください"); return;
     }
-    const data = { fullName, memo: fileName.memo, layers, surfacePart, bridgeRatios, savedAt: new Date().toISOString() };
+    const data = createSavePayload();
     downloadJSON(data, `${fullName}.json`);
     setIsDirty(false);
     showMsg("ok", `「${fullName}.json」をダウンロードしました`);
@@ -755,7 +904,7 @@ export default function InsulationCalcPage() {
 
   // ── 上書き保存（同名でダウンロード） ──
   function handleOverwrite() {
-    const data = { fullName, memo: fileName.memo, layers, surfacePart, savedAt: new Date().toISOString() };
+    const data = createSavePayload();
     downloadJSON(data, `${fullName}.json`);
     setIsDirty(false);
     showMsg("ok", `「${fullName}.json」を上書き保存しました`);
@@ -765,7 +914,7 @@ export default function InsulationCalcPage() {
   function handleSaveAs() {
     const newName = window.prompt("別名を入力してください（部位名-中間名-番号）", fullName);
     if (!newName) return;
-    const data = { fullName: newName, memo: fileName.memo, layers, surfacePart, savedAt: new Date().toISOString() };
+    const data = createSavePayload({ fullName: newName });
     downloadJSON(data, `${newName}.json`);
     setIsDirty(false);
     showMsg("ok", `「${newName}.json」として保存しました`);
@@ -783,14 +932,19 @@ export default function InsulationCalcPage() {
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
-        const data = JSON.parse(ev.target.result);
+        const rawData = JSON.parse(ev.target.result);
+        const data = normalizeLoadedData(rawData);
         setLayers(data.layers);
-        setSurfacePart(data.surfacePart || "外壁（通気層等）");
-        if (data.bridgeRatios) setBridgeRatios(data.bridgeRatios);
+        setSurfacePart(data.surfacePart);
+        setBridgeRatios(data.bridgeRatios);
+        setMaterialDb(data.materialDb);
+        setDensityDb(data.densityDb);
+        const firstCategory = Object.keys(data.materialDb)[0];
+        if (firstCategory) setEditingCategory(firstCategory);
         const parts = (data.fullName || "").split("-");
         setFileName({ part: parts[0] || "", midName: parts[1] || "", number: parts[2] || "", memo: data.memo || "" });
         setIsDirty(false);
-        showMsg("ok", `「${data.fullName || file.name}」を読み込みました`);
+        showMsg("ok", `「${data.fullName || file.name}」を読み込みました（schema v${data.schemaVersion}）`);
       } catch { showMsg("err", "ファイルの読み込みに失敗しました（JSONが不正です）"); }
     };
     reader.readAsText(file);
@@ -802,6 +956,9 @@ export default function InsulationCalcPage() {
     if (isDirty && !window.confirm("未保存の変更があります。新規作成しますか？")) return;
     setLayers(initialLayers);
     setSurfacePart("外壁(通気層)");
+    setMaterialDb(INITIAL_MATERIAL_DB);
+    setDensityDb(INITIAL_DENSITY_DB);
+    setEditingCategory(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
     setFileName({ part: "", midName: "", number: "", memo: "" });
     setIsDirty(false);
     showMsg("ok", "新規作成しました");
@@ -944,6 +1101,126 @@ export default function InsulationCalcPage() {
             )}
           </div>
 
+          {/* 物性値データベース編集 */}
+          <div style={panelStyle}>
+            <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>物性値データベース（λ / 比重 / カテゴリ）</span>
+              <button onClick={() => setShowDbPanel((v) => !v)} style={{ ...btnStyle(), fontSize: 10, padding: "2px 7px" }}>
+                {showDbPanel ? "閉じる" : "開く"}
+              </button>
+            </div>
+            {showDbPanel && (
+              <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6 }}>
+                  <select
+                    value={editingCategory}
+                    onChange={(e) => setEditingCategory(e.target.value)}
+                    style={{ ...inpStyle, fontSize: 11 }}
+                  >
+                    {materialCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <button onClick={renameCategory} style={btnStyle()}>カテゴリ名変更</button>
+                </div>
+                <input
+                  value={renameCategoryName}
+                  onChange={(e) => setRenameCategoryName(e.target.value)}
+                  style={inpStyle}
+                  placeholder="カテゴリ名を編集"
+                />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6 }}>
+                  <input
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    style={inpStyle}
+                    placeholder="新規カテゴリ名"
+                  />
+                  <button onClick={addCategory} style={btnStyle()}>カテゴリ追加</button>
+                </div>
+                <div style={{ maxHeight: 260, overflowY: "auto", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {editingMaterials.length === 0 ? (
+                    <div style={{ padding: "12px 8px", fontSize: 11, color: "var(--color-text-secondary)" }}>
+                      このカテゴリに材料がありません。
+                    </div>
+                  ) : editingMaterials.map((item) => (
+                    <div key={item.value} style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: 6, background: "var(--color-background-primary)" }}>
+                      <div style={{ padding: "7px 10px", fontSize: 12, fontWeight: 500, borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+                        {item.label || item.value}
+                      </div>
+                      <div style={{ padding: "8px 10px", display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 8 }}>
+                        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>カテゴリ</span>
+                          <select
+                            value={editingCategory}
+                            onChange={(e) => moveMaterialToCategory(item.value, e.target.value)}
+                            style={{ ...inpStyle, fontSize: 11 }}
+                          >
+                            {materialCategories.map((category) => (
+                              <option key={`${item.value}-${category}`} value={category}>{category}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>λ</span>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={item.λ}
+                            onChange={(e) => updateMaterialLambda(editingCategory, item.value, parseFloat(e.target.value) || 0)}
+                            style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                          />
+                        </label>
+                        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>比重</span>
+                          <input
+                            type="number"
+                            step="0.001"
+                            min="0"
+                            value={densityDb[item.value] ?? 0}
+                            onChange={(e) => updateMaterialDensity(item.value, parseFloat(e.target.value) || 0)}
+                            style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: 8, display: "grid", gap: 6 }}>
+                  <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontWeight: 500 }}>材料を追加（現在カテゴリ: {editingCategory || "未選択"}）</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr auto", gap: 6 }}>
+                    <input
+                      value={newMaterialName}
+                      onChange={(e) => setNewMaterialName(e.target.value)}
+                      style={inpStyle}
+                      placeholder="材料名"
+                    />
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={newMaterialLambda}
+                      onChange={(e) => setNewMaterialLambda(parseFloat(e.target.value) || 0)}
+                      style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                      placeholder="λ"
+                    />
+                    <input
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      value={newMaterialDensity}
+                      onChange={(e) => setNewMaterialDensity(parseFloat(e.target.value) || 0)}
+                      style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                      placeholder="比重"
+                    />
+                    <button onClick={addMaterialToCategory} style={btnStyle("primary")}>追加</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* 計算条件パネル（Rsi/Rse + 熱橋面積比） */}
           <div style={panelStyle}>
             <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
@@ -1053,7 +1330,18 @@ export default function InsulationCalcPage() {
             </div>
             <div style={{ padding: "10px 12px" }}>
               {layers.map((layer, i) => (
-                <LayerRow key={i} layer={layer} index={i} onChange={(val) => updateLayer(i, val)} />
+                <LayerRow
+                  key={i}
+                  layer={layer}
+                  index={i}
+                  onChange={(val) => updateLayer(i, val)}
+                  onMoveUp={() => moveLayer(i, i - 1)}
+                  onMoveDown={() => moveLayer(i, i + 1)}
+                  canMoveUp={i > 0}
+                  canMoveDown={i < layers.length - 1}
+                  materialDb={materialDb}
+                  densityDb={densityDb}
+                />
               ))}
             </div>
           </div>
