@@ -306,10 +306,12 @@ function calculateUValue(layers, rsi, rse, bridgeRatios) {
     const name1 = m1.materialType === "air" ? "空気層" : (m1.material || "（未設定）");
 
     if (hasBridge) {
+      // 熱橋あり: material1 = 断熱（断熱経路・熱橋経路ともに通る共通部材）
       if (r1 != null) {
-        rows.push({ label: name1, λ: λ1, d, flag: "熱橋＆断熱", R_bridge: r1, R_ins: r1, color: m1.color });
+        rows.push({ label: name1, λ: λ1, d, flag: "断熱", R_bridge: r1, R_ins: r1, color: m1.color });
         R_common += r1;
       }
+      // material2+ = 熱橋（熱橋経路にのみ追加）
       materials.slice(1).forEach((mj, ji) => {
         if (mj.materialType === "none") return;
         const λj = mj.materialType === "air" ? "空気層" : getLambda(mj.category, mj.material);
@@ -321,8 +323,9 @@ function calculateUValue(layers, rsi, rse, bridgeRatios) {
         }
       });
     } else {
+      // 熱橋なし: material1 = 熱橋＆断熱（全経路共通）
       if (r1 != null) {
-        rows.push({ label: name1, λ: λ1, d, flag: "断熱", R_bridge: 0, R_ins: r1, color: m1.color });
+        rows.push({ label: name1, λ: λ1, d, flag: "熱橋＆断熱", R_bridge: r1, R_ins: r1, color: m1.color });
         R_common += r1;
       }
     }
@@ -690,9 +693,9 @@ function UValuePanel({ result, layers }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {/* 凡例 */}
       <div style={{ fontSize: 10, color: "var(--color-text-secondary)", display: "flex", gap: 10 }}>
-        <span style={{ background: "#f0fdf4", color: "#166534", padding: "1px 5px", borderRadius: 2 }}>断熱</span>
-        <span style={{ background: "#fffbeb", color: "#92400e", padding: "1px 5px", borderRadius: 2 }}>熱橋</span>
-        <span style={{ background: "#fffbeb", color: "#92400e", padding: "1px 5px", borderRadius: 2 }}>熱橋＆断熱</span>
+        <span style={{ background: "#f0fdf4", color: "#166534", padding: "1px 5px", borderRadius: 2 }}>断熱（熱橋あり・主材料）</span>
+        <span style={{ background: "#fffbeb", color: "#92400e", padding: "1px 5px", borderRadius: 2 }}>熱橋（熱橋材料）</span>
+        <span style={{ background: "#f0f9ff", color: "#0369a1", padding: "1px 5px", borderRadius: 2 }}>熱橋＆断熱（熱橋なし・全経路共通）</span>
       </div>
       {/* 計算表 */}
       <div style={{ overflowX: "auto" }}>
@@ -724,8 +727,8 @@ function UValuePanel({ result, layers }) {
               const isRsi = row.label.startsWith("室内側");
               const isRse = row.label.startsWith("外気側");
               const isSurface = isRsi || isRse;
-              const flagColor = row.flag === "断熱" ? "#166534" : row.flag === "熱橋" ? "#92400e" : "var(--color-text-secondary)";
-              const flagBg = row.flag === "断熱" ? "#f0fdf4" : row.flag === "熱橋" ? "#fffbeb" : undefined;
+              const flagColor = row.flag === "断熱" ? "#166534" : row.flag === "熱橋" ? "#92400e" : row.flag === "熱橋＆断熱" ? "#0369a1" : "var(--color-text-secondary)";
+              const flagBg = row.flag === "断熱" ? "#f0fdf4" : row.flag === "熱橋" ? "#fffbeb" : row.flag === "熱橋＆断熱" ? "#f0f9ff" : undefined;
               return (
                 <tr key={i} style={{ background: isSurface ? "var(--color-background-secondary)" : undefined }}>
                   <td style={{ ...td("", {}), display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
@@ -746,8 +749,10 @@ function UValuePanel({ result, layers }) {
                   <td style={td("", { mono: true, right: true })}>
                     {isSurface
                       ? row.R_bridge.toFixed(3)
+                      : row.flag === "熱橋＆断熱"
+                      ? row.R_bridge > 0 ? row.R_bridge.toFixed(3) : ""
                       : row.flag === "断熱"
-                      ? "0"
+                      ? row.R_ins > 0 ? row.R_ins.toFixed(3) : ""  // 断熱主材料は両経路に通るので表示
                       : row.R_bridge > 0 ? row.R_bridge.toFixed(3) : ""}
                   </td>
                   <td style={td("", { mono: true, right: true })}>
