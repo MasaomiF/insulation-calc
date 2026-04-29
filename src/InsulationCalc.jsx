@@ -1209,6 +1209,18 @@ export default function InsulationCalc() {
             )}
           </div>
 
+          {/* 断面構成パネル */}
+          <div style={panelStyle}>
+            <div style={{ padding: "10px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>断面構成</span>
+            </div>
+            <div style={{ padding: "10px 12px" }}>
+              {layers.map((layer, i) => (
+                <LayerRow key={i} layer={layer} index={i} onChange={(val) => updateLayer(i, val)} />
+              ))}
+            </div>
+          </div>
+
           {/* 熱橋面積比設定パネル */}
           <div style={panelStyle}>
             <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
@@ -1291,18 +1303,6 @@ export default function InsulationCalc() {
                   </div>
                 );
               })()}
-            </div>
-          </div>
-
-          {/* 断面構成パネル */}
-          <div style={panelStyle}>
-            <div style={{ padding: "10px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
-              <span style={{ fontSize: 12, fontWeight: 500 }}>断面構成</span>
-            </div>
-            <div style={{ padding: "10px 12px" }}>
-              {layers.map((layer, i) => (
-                <LayerRow key={i} layer={layer} index={i} onChange={(val) => updateLayer(i, val)} />
-              ))}
             </div>
           </div>
         </div>
