@@ -1085,35 +1085,11 @@ export default function InsulationCalc() {
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--color-text-primary)", maxWidth: 1000, margin: "0 auto" }}>
 
       {/* ── ヘッダー ── */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <h2 style={{ fontSize: 15, fontWeight: 500, margin: 0 }}>断熱・荷重計算ツール</h2>
         {fullName !== "無題" && (
           <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>— {fullName}{isDirty ? " *" : ""}</span>
         )}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
-          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>部位:</span>
-          <select value={surfacePart} onChange={(e) => setSurfacePart(e.target.value)}
-            style={{ fontSize: 12, padding: "3px 8px", borderRadius: "var(--border-radius-md)", border: "0.5px solid var(--color-border-secondary)", background: "var(--color-background-primary)", color: "var(--color-text-primary)" }}>
-            <optgroup label="屋根">
-              {RSI_RSE_VALUES.filter(r => r.part.startsWith("屋根")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
-            </optgroup>
-            <optgroup label="天井">
-              {RSI_RSE_VALUES.filter(r => r.part.startsWith("天井")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
-            </optgroup>
-            <optgroup label="外壁">
-              {RSI_RSE_VALUES.filter(r => r.part.startsWith("外壁")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
-            </optgroup>
-            <optgroup label="床">
-              {RSI_RSE_VALUES.filter(r => r.part.startsWith("床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
-            </optgroup>
-            <optgroup label="界壁・界床">
-              {RSI_RSE_VALUES.filter(r => r.part.startsWith("界") || r.part.includes("界床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
-            </optgroup>
-          </select>
-          <span style={{ fontSize: 11, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}>
-            Rsi={surfaceData.rsi} / Rse={surfaceData.rse}
-          </span>
-        </div>
       </div>
 
       {hasError && (
@@ -1209,6 +1185,108 @@ export default function InsulationCalc() {
             )}
           </div>
 
+          {/* 計算条件パネル（Rsi/Rse + 熱橋面積比） */}
+          <div style={panelStyle}>
+            <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>計算条件</span>
+            </div>
+            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+              {/* 表面熱伝達抵抗 */}
+              <div>
+                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4, fontWeight: 500 }}>表面熱伝達抵抗（Rsi / Rse）</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select value={surfacePart} onChange={(e) => { setSurfacePart(e.target.value); setIsDirty(true); }}
+                    style={{ ...inpStyle, fontSize: 11, flex: 1 }}>
+                    <optgroup label="屋根">
+                      {RSI_RSE_VALUES.filter(r => r.part.startsWith("屋根")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+                    </optgroup>
+                    <optgroup label="天井">
+                      {RSI_RSE_VALUES.filter(r => r.part.startsWith("天井")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+                    </optgroup>
+                    <optgroup label="外壁">
+                      {RSI_RSE_VALUES.filter(r => r.part.startsWith("外壁")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+                    </optgroup>
+                    <optgroup label="床">
+                      {RSI_RSE_VALUES.filter(r => r.part.startsWith("床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+                    </optgroup>
+                    <optgroup label="界壁・界床">
+                      {RSI_RSE_VALUES.filter(r => r.part.startsWith("界") || r.part.includes("界床")).map((r) => <option key={r.part} value={r.part}>{r.part}</option>)}
+                    </optgroup>
+                  </select>
+                  <span style={{ fontSize: 11, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                    Rsi={surfaceData.rsi} / Rse={surfaceData.rse}
+                  </span>
+                </div>
+              </div>
+
+              {/* 区切り線 */}
+              <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }} />
+
+              {/* 熱橋面積比 */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontWeight: 500 }}>熱橋面積比（U値計算用）</div>
+
+                {/* プリセット選択 */}
+                <select defaultValue="" onChange={(e) => {
+                    if (!e.target.value) return;
+                    const preset = BRIDGE_RATIO_PRESETS.find((p) => p.id === e.target.value);
+                    if (preset) { setBridgeRatios([...preset.ratios]); setIsDirty(true); }
+                    e.target.value = "";
+                  }}
+                  style={{ ...inpStyle, fontSize: 11 }}>
+                  <option value="">── プリセットを選択（国交省 Ver.15）──</option>
+                  {["Wall", "Ceiling", "Floor", "Roof"].map((group) => (
+                    <optgroup key={group} label={group}>
+                      {BRIDGE_RATIO_PRESETS.filter((p) => p.group === group).map((p) => (
+                        <option key={p.id} value={p.id}>{p.label}　熱橋={p.ratios.filter(r=>r>0).map(r=>r.toFixed(2)).join("+")} / 断熱={(1-p.ratios.reduce((s,r)=>s+r,0)).toFixed(2)}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+
+                {/* 断熱部（自動） */}
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>断熱部</span>
+                  <div style={{ height: 6, borderRadius: 3, background: "#dbeafe", position: "relative", overflow: "hidden" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${uResult.insulationRatio * 100}%`, background: "#185FA5", borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", minWidth: 42, textAlign: "right" }}>
+                    {uResult.insulationRatio.toFixed(3)}
+                  </span>
+                </div>
+
+                {/* 熱橋1〜3 */}
+                {[0, 1, 2].map((idx) => (
+                  <div key={idx} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>熱橋 {idx + 1}</span>
+                    <input type="range" min="0" max="0.5" step="0.001"
+                      value={bridgeRatios[idx]}
+                      onChange={(e) => { const n=[...bridgeRatios]; n[idx]=parseFloat(e.target.value); setBridgeRatios(n); setIsDirty(true); }}
+                      style={{ width: "100%", accentColor: "#92400e" }} />
+                    <input type="number" min="0" max="0.5" step="0.001"
+                      value={bridgeRatios[idx]}
+                      onChange={(e) => { const n=[...bridgeRatios]; n[idx]=parseFloat(e.target.value)||0; setBridgeRatios(n); setIsDirty(true); }}
+                      style={{ ...inpStyle, width: 58, fontFamily: "var(--font-mono)", textAlign: "right" }} />
+                  </div>
+                ))}
+
+                {/* 合計チェック */}
+                {(() => {
+                  const total = bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0);
+                  const ok = total <= 1.0;
+                  return (
+                    <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", padding: "3px 8px", borderRadius: 3,
+                      background: ok ? "#f0fdf4" : "#fee2e2", color: ok ? "#166534" : "#991b1b" }}>
+                      Σ熱橋 = {total.toFixed(3)}　断熱部 = {(1 - total).toFixed(3)}
+                      {!ok && "　⚠ 合計が1を超えています"}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
           {/* 断面構成パネル */}
           <div style={panelStyle}>
             <div style={{ padding: "10px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
@@ -1221,90 +1299,6 @@ export default function InsulationCalc() {
             </div>
           </div>
 
-          {/* 熱橋面積比設定パネル */}
-          <div style={panelStyle}>
-            <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
-              <span style={{ fontSize: 12, fontWeight: 500 }}>熱橋面積比（U値計算用）</span>
-            </div>
-            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-
-              {/* プリセット選択 */}
-              <div>
-                <div style={{ fontSize: 10, color: "var(--color-text-secondary)", marginBottom: 4 }}>プリセット（国土交通省 Ver.15 表3〜6）</div>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    if (!e.target.value) return;
-                    const preset = BRIDGE_RATIO_PRESETS.find((p) => p.id === e.target.value);
-                    if (preset) { setBridgeRatios([...preset.ratios]); setIsDirty(true); }
-                    e.target.value = "";
-                  }}
-                  style={{ ...inpStyle, fontSize: 11 }}
-                >
-                  <option value="">── プリセットを選択 ──</option>
-                  {["Wall", "Ceiling", "Floor", "Roof"].map((group) => (
-                    <optgroup key={group} label={group}>
-                      {BRIDGE_RATIO_PRESETS.filter((p) => p.group === group).map((p) => (
-                        <option key={p.id} value={p.id}>{p.label}　熱橋={p.ratios.filter(r=>r>0).map(r=>r.toFixed(2)).join("+")} / 断熱={(1-p.ratios.reduce((s,r)=>s+r,0)).toFixed(2)}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-
-              {/* 断熱部は自動表示 */}
-              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
-                <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>断熱部</span>
-                <div style={{ height: 6, borderRadius: 3, background: "#dbeafe", position: "relative", overflow: "hidden" }}>
-                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${uResult.insulationRatio * 100}%`, background: "#185FA5", borderRadius: 3 }} />
-                </div>
-                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", minWidth: 42, textAlign: "right" }}>
-                  {uResult.insulationRatio.toFixed(3)}
-                </span>
-              </div>
-
-              {[0, 1, 2].map((idx) => (
-                <div key={idx} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>熱橋 {idx + 1}</span>
-                  <input
-                    type="range" min="0" max="0.5" step="0.001"
-                    value={bridgeRatios[idx]}
-                    onChange={(e) => {
-                      const newRatios = [...bridgeRatios];
-                      newRatios[idx] = parseFloat(e.target.value);
-                      setBridgeRatios(newRatios);
-                      setIsDirty(true);
-                    }}
-                    style={{ width: "100%", accentColor: "#92400e" }}
-                  />
-                  <input
-                    type="number" min="0" max="0.5" step="0.001"
-                    value={bridgeRatios[idx]}
-                    onChange={(e) => {
-                      const newRatios = [...bridgeRatios];
-                      newRatios[idx] = parseFloat(e.target.value) || 0;
-                      setBridgeRatios(newRatios);
-                      setIsDirty(true);
-                    }}
-                    style={{ ...inpStyle, width: 58, fontFamily: "var(--font-mono)", textAlign: "right" }}
-                  />
-                </div>
-              ))}
-
-              {/* 合計チェック */}
-              {(() => {
-                const total = bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0);
-                const ok = total <= 1.0;
-                return (
-                  <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", padding: "3px 8px", borderRadius: 3,
-                    background: ok ? "#f0fdf4" : "#fee2e2", color: ok ? "#166534" : "#991b1b" }}>
-                    Σ熱橋 = {total.toFixed(3)}　断熱部 = {(1 - total).toFixed(3)}
-                    {!ok && "　⚠ 合計が1を超えています"}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
         </div>
 
         {/* ── 右カラム：断面プレビュー（常時）＋タブ切り替え結果 ── */}
