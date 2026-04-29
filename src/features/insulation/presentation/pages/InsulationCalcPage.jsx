@@ -1,8 +1,16 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import { flushSync } from "react-dom";
 import { UValuePanel } from "../components/UValuePanel";
+import { InsulationPdfReportRoot } from "../components/InsulationPdfReportRoot";
+import { exportInsulationReportPdf } from "../utils/exportInsulationReportPdf";
 import { useInsulationCalc } from "../hooks/useInsulationCalc";
 import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
-import { INITIAL_DENSITY_DB, INITIAL_MATERIAL_DB } from "../../domain/constants/materialDatabase";
+import {
+  INITIAL_DENSITY_DB,
+  INITIAL_MATERIAL_DB,
+  normalizeMaterialDbEntries,
+  findLambdaDuplicateGroupsInDb,
+} from "../../domain/constants/materialDatabase";
 
 // ============================================================
 // 表面熱伝達抵抗（国土交通省 Ver.15 表3.1・3.2）
@@ -71,6 +79,21 @@ const BRIDGE_RATIO_PRESETS = [
   { id: "roof-taruki-add", group: "Roof", label: "屋根・たるき間+付加断熱（横下地）", ratios: [0.12, 0.01, 0.08] },
 ];
 
+function bridgeRatiosMatchPreset(ratios, presetRatios, eps = 1e-5) {
+  for (let i = 0; i < 3; i++) {
+    const a = parseFloat(ratios[i]) || 0;
+    const b = presetRatios[i] ?? 0;
+    if (Math.abs(a - b) > eps) return false;
+  }
+  return true;
+}
+
+/** 現在の [熱橋1,2,3] に一致するプリセット（配列先頭優先）。無ければ null */
+function findMatchingBridgePresetId(ratios) {
+  const p = BRIDGE_RATIO_PRESETS.find((pr) => bridgeRatiosMatchPreset(ratios, pr.ratios));
+  return p ? p.id : null;
+}
+
 const COLOR_MAP = {
   gray: "#9e9e9e", darkslategray: "#3d5a5a", darkolivegreen: "#5a6a2a",
   white: "#f5f5f5", lightcyan: "#cff5f5", lavender: "#e8e8ff",
@@ -125,7 +148,7 @@ function defaultLayer(i) {
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
-const SAVE_SCHEMA_VERSION = 2;
+const SAVE_SCHEMA_VERSION = 3;
 
 function getLambda(materialDb, category, material) {
   return resolveLambda(materialDb, category, material);
@@ -530,7 +553,7 @@ function SectionPreview({ layers, uResult }) {
 const SECTION_CW = 600; // キャンバス内部幅
 const SECTION_CH = 160; // キャンバス内部高さ（固定）
 
-function HorizontalSection({ layers }) {
+function HorizontalSection({ layers, sectionCanvasRef }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -580,7 +603,8 @@ function HorizontalSection({ layers }) {
 
       y += h;
     });
-  }, [layers]);
+    if (sectionCanvasRef) sectionCanvasRef.current = canvasRef.current;
+  }, [layers, sectionCanvasRef]);
 
   return (
     <canvas ref={canvasRef} width={SECTION_CW} height={SECTION_CH}
@@ -678,8 +702,9 @@ export default function InsulationCalcPage() {
   const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
   const [densityDb, setDensityDb] = useState(INITIAL_DENSITY_DB);
   const [showDbPanel, setShowDbPanel] = useState(true);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [renameCategoryName, setRenameCategoryName] = useState("");
+  /** null | "rename" | "add" — カテゴリ名変更・追加はモーダルで入力 */
+  const [categoryModal, setCategoryModal] = useState(null);
+  const [categoryModalDraft, setCategoryModalDraft] = useState("");
   const [newMaterialName, setNewMaterialName] = useState("");
   const [newMaterialLambda, setNewMaterialLambda] = useState(0.04);
   const [newMaterialDensity, setNewMaterialDensity] = useState(0.03);
@@ -687,6 +712,12 @@ export default function InsulationCalcPage() {
   const [surfacePart, setSurfacePart] = useState("外壁（通気層等）");
   const [activeTab, setActiveTab] = useState("section");
   const [bridgeRatios, setBridgeRatios] = useState(initialBridgeRatios);
+  const matchedBridgePresetId = useMemo(() => findMatchingBridgePresetId(bridgeRatios), [bridgeRatios]);
+  const bridgePresetSelectValue = matchedBridgePresetId ?? "__custom__";
+  const bridgePresetLabelForPdf = useMemo(() => {
+    if (!matchedBridgePresetId) return "手動入力（プリセットと一致しない数値）";
+    return BRIDGE_RATIO_PRESETS.find((p) => p.id === matchedBridgePresetId)?.label ?? matchedBridgePresetId;
+  }, [matchedBridgePresetId]);
 
   // ── ファイル管理 state ──
   const [fileName, setFileName] = useState({ part: "", midName: "", number: "", memo: "" });
@@ -694,6 +725,10 @@ export default function InsulationCalcPage() {
   const [showFilePanel, setShowFilePanel] = useState(true);
   const [isDirty, setIsDirty] = useState(false); // 未保存変更あり
   const fileInputRef = useRef(null);
+  const sectionCanvasRef = useRef(null);
+  const reportPdfRef = useRef(null);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfReportStamp, setPdfReportStamp] = useState("");
 
   const surfaceData = RSI_RSE_VALUES.find((r) => r.part === surfacePart) || RSI_RSE_VALUES[4];
   const { uResult, dlResult } = useInsulationCalc({
@@ -724,16 +759,13 @@ export default function InsulationCalcPage() {
   const hasError = rsiCount > 1 || rseCount > 1;
   const materialCategories = Object.keys(materialDb);
   const editingMaterials = materialDb[editingCategory] || [];
+  const lambdaDupGroups = useMemo(() => findLambdaDuplicateGroupsInDb(materialDb), [materialDb]);
 
   useEffect(() => {
     if (!materialDb[editingCategory]) {
       setEditingCategory(materialCategories[0] || "");
     }
   }, [editingCategory, materialCategories, materialDb]);
-
-  useEffect(() => {
-    setRenameCategoryName(editingCategory);
-  }, [editingCategory]);
 
   const fullName = [fileName.part, fileName.midName, fileName.number].filter(Boolean).join("-") || "無題";
 
@@ -754,7 +786,8 @@ export default function InsulationCalcPage() {
 
   function normalizeLoadedData(raw) {
     const schemaVersion = Number(raw?.schemaVersion || 1);
-    const loadedMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
+    const rawMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
+    const loadedMaterialDb = normalizeMaterialDbEntries(rawMaterialDb);
     const loadedDensityDb = raw?.densityDb && typeof raw.densityDb === "object" ? raw.densityDb : INITIAL_DENSITY_DB;
 
     let loadedLayers = Array.isArray(raw?.layers) ? raw.layers : initialLayers;
@@ -788,6 +821,44 @@ export default function InsulationCalcPage() {
     setTimeout(() => setFileMsg(null), 3000);
   }
 
+  async function handleExportPdf() {
+    if (pdfExporting) return;
+    const root = reportPdfRef.current;
+    if (!root) {
+      showMsg("err", "レポート領域が見つかりません");
+      return;
+    }
+    flushSync(() => {
+      setPdfReportStamp(new Date().toLocaleString("ja-JP", { dateStyle: "medium", timeStyle: "short" }));
+    });
+    const img = root.querySelector("[data-pdf-section]");
+    if (img && sectionCanvasRef.current) {
+      try {
+        img.src = sectionCanvasRef.current.toDataURL("image/png");
+      } catch {
+        showMsg("err", "断面画像の取得に失敗しました");
+        return;
+      }
+      await new Promise((resolve) => {
+        if (img.complete && img.naturalWidth) resolve();
+        else {
+          img.onload = () => resolve();
+          img.onerror = () => resolve();
+        }
+      });
+    }
+    setPdfExporting(true);
+    try {
+      await exportInsulationReportPdf(root, fullName);
+      showMsg("ok", "PDFをダウンロードしました");
+    } catch (e) {
+      console.error(e);
+      showMsg("err", "PDFの生成に失敗しました");
+    } finally {
+      setPdfExporting(false);
+    }
+  }
+
   const updateMaterialLambda = useCallback((category, value, nextLambda) => {
     setMaterialDb((prev) => {
       const items = prev[category] || [];
@@ -798,36 +869,110 @@ export default function InsulationCalcPage() {
     });
     setIsDirty(true);
   }, []);
+  const updateMaterialMemo = useCallback((category, value, nextMemo) => {
+    setMaterialDb((prev) => {
+      const items = prev[category] || [];
+      return {
+        ...prev,
+        [category]: items.map((m) => (m.value === value ? { ...m, memo: nextMemo } : m)),
+      };
+    });
+    setIsDirty(true);
+  }, []);
   const updateMaterialDensity = useCallback((value, nextDensity) => {
     setDensityDb((prev) => ({ ...prev, [value]: nextDensity }));
     setIsDirty(true);
   }, []);
-  const addCategory = useCallback(() => {
-    const name = newCategoryName.trim();
-    if (!name || materialDb[name]) return;
-    setMaterialDb((prev) => ({ ...prev, [name]: [] }));
-    setEditingCategory(name);
-    setNewCategoryName("");
-    setIsDirty(true);
-  }, [materialDb, newCategoryName]);
-  const renameCategory = useCallback(() => {
-    const nextName = renameCategoryName.trim();
-    if (!editingCategory || !nextName || nextName === editingCategory || materialDb[nextName]) return;
-    setMaterialDb((prev) => {
-      const { [editingCategory]: currentItems = [], ...rest } = prev;
-      return { ...rest, [nextName]: currentItems };
-    });
-    setLayers((prev) =>
-      prev.map((layer) => ({
-        ...layer,
-        materials: layer.materials.map((mat) =>
-          mat.category === editingCategory ? { ...mat, category: nextName } : mat
-        ),
-      }))
-    );
-    setEditingCategory(nextName);
-    setIsDirty(true);
-  }, [editingCategory, materialDb, renameCategoryName]);
+  const commitAddCategory = useCallback(
+    (draft) => {
+      const name = draft.trim();
+      if (!name) {
+        showMsg("err", "カテゴリ名を入力してください。");
+        return false;
+      }
+      if (materialDb[name]) {
+        showMsg("err", "同名のカテゴリが既にあります。");
+        return false;
+      }
+      setMaterialDb((prev) => ({ ...prev, [name]: [] }));
+      setEditingCategory(name);
+      setIsDirty(true);
+      return true;
+    },
+    [materialDb]
+  );
+  const commitRenameCategory = useCallback(
+    (draft) => {
+      const nextName = draft.trim();
+      if (!editingCategory) return false;
+      if (!nextName) {
+        showMsg("err", "カテゴリ名を入力してください。");
+        return false;
+      }
+      if (nextName === editingCategory) return true;
+      if (materialDb[nextName]) {
+        showMsg("err", "同名のカテゴリが既にあります。");
+        return false;
+      }
+      setMaterialDb((prev) => {
+        const { [editingCategory]: currentItems = [], ...rest } = prev;
+        return { ...rest, [nextName]: currentItems };
+      });
+      setLayers((prev) =>
+        prev.map((layer) => ({
+          ...layer,
+          materials: layer.materials.map((mat) =>
+            mat.category === editingCategory ? { ...mat, category: nextName } : mat
+          ),
+        }))
+      );
+      setEditingCategory(nextName);
+      setIsDirty(true);
+      return true;
+    },
+    [editingCategory, materialDb]
+  );
+
+  const closeCategoryModal = useCallback(() => {
+    setCategoryModal(null);
+    setCategoryModalDraft("");
+  }, []);
+
+  useEffect(() => {
+    if (!categoryModal) return;
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") closeCategoryModal();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [categoryModal, closeCategoryModal]);
+
+  const handleCategoryModalConfirm = useCallback(() => {
+    if (categoryModal === "rename") {
+      const t = categoryModalDraft.trim();
+      if (t === editingCategory) {
+        closeCategoryModal();
+        return;
+      }
+      if (commitRenameCategory(categoryModalDraft)) {
+        closeCategoryModal();
+        showMsg("ok", "カテゴリ名を変更しました。");
+      }
+    } else if (categoryModal === "add") {
+      if (commitAddCategory(categoryModalDraft)) {
+        closeCategoryModal();
+        showMsg("ok", "カテゴリを追加しました。");
+      }
+    }
+  }, [
+    categoryModal,
+    categoryModalDraft,
+    editingCategory,
+    commitRenameCategory,
+    commitAddCategory,
+    closeCategoryModal,
+  ]);
+
   const moveMaterialToCategory = useCallback((materialValue, targetCategory) => {
     if (!targetCategory) return;
     let sourceCategory = "";
@@ -870,7 +1015,7 @@ export default function InsulationCalcPage() {
       ...prev,
       [editingCategory]: [
         ...(prev[editingCategory] || []),
-        { label: name, value: name, λ: nextLambda },
+        { label: name, value: name, λ: nextLambda, memo: "" },
       ],
     }));
     setDensityDb((prev) => ({ ...prev, [name]: nextDensity }));
@@ -1111,7 +1256,7 @@ export default function InsulationCalcPage() {
             </div>
             {showDbPanel && (
               <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, alignItems: "stretch" }}>
                   <select
                     value={editingCategory}
                     onChange={(e) => setEditingCategory(e.target.value)}
@@ -1121,23 +1266,39 @@ export default function InsulationCalcPage() {
                       <option key={category} value={category}>{category}</option>
                     ))}
                   </select>
-                  <button onClick={renameCategory} style={btnStyle()}>カテゴリ名変更</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryModal("rename");
+                      setCategoryModalDraft(editingCategory);
+                    }}
+                    style={btnStyle()}
+                  >
+                    カテゴリ名変更
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategoryModal("add");
+                      setCategoryModalDraft("");
+                    }}
+                    style={btnStyle()}
+                  >
+                    カテゴリ追加
+                  </button>
                 </div>
-                <input
-                  value={renameCategoryName}
-                  onChange={(e) => setRenameCategoryName(e.target.value)}
-                  style={inpStyle}
-                  placeholder="カテゴリ名を編集"
-                />
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 6 }}>
-                  <input
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    style={inpStyle}
-                    placeholder="新規カテゴリ名"
-                  />
-                  <button onClick={addCategory} style={btnStyle()}>カテゴリ追加</button>
-                </div>
+                {lambdaDupGroups.length > 0 && (
+                  <div style={{ fontSize: 10, color: "#92400e", background: "#fffbeb", border: "0.5px solid #fcd34d", borderRadius: 4, padding: "6px 8px", lineHeight: 1.45, maxHeight: 120, overflowY: "auto" }}>
+                    <strong>λ が同じ組み合わせ（要確認）</strong>
+                    {lambdaDupGroups.map((g) => (
+                      <div key={`${g.λ}-${g.materials[0]}`} style={{ marginTop: 4 }}>
+                        <span style={{ fontFamily: "var(--font-mono)" }}>λ={g.λ}</span>
+                        <span style={{ color: "var(--color-text-secondary)" }}>（{g.materials.length}件）</span>
+                        <div style={{ marginTop: 2, color: "var(--color-text-primary)" }}>{g.materials.join(" / ")}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{ maxHeight: 260, overflowY: "auto", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: 8, display: "flex", flexDirection: "column", gap: 10 }}>
                   {editingMaterials.length === 0 ? (
                     <div style={{ padding: "12px 8px", fontSize: 11, color: "var(--color-text-secondary)" }}>
@@ -1148,39 +1309,50 @@ export default function InsulationCalcPage() {
                       <div style={{ padding: "7px 10px", fontSize: 12, fontWeight: 500, borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
                         {item.label || item.value}
                       </div>
-                      <div style={{ padding: "8px 10px", display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 8 }}>
+                      <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr", gap: 8 }}>
+                          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>カテゴリ</span>
+                            <select
+                              value={editingCategory}
+                              onChange={(e) => moveMaterialToCategory(item.value, e.target.value)}
+                              style={{ ...inpStyle, fontSize: 11 }}
+                            >
+                              {materialCategories.map((category) => (
+                                <option key={`${item.value}-${category}`} value={category}>{category}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>λ</span>
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              value={item.λ}
+                              onChange={(e) => updateMaterialLambda(editingCategory, item.value, parseFloat(e.target.value) || 0)}
+                              style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                            />
+                          </label>
+                          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>比重</span>
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              value={densityDb[item.value] ?? 0}
+                              onChange={(e) => updateMaterialDensity(item.value, parseFloat(e.target.value) || 0)}
+                              style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                            />
+                          </label>
+                        </div>
                         <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>カテゴリ</span>
-                          <select
-                            value={editingCategory}
-                            onChange={(e) => moveMaterialToCategory(item.value, e.target.value)}
-                            style={{ ...inpStyle, fontSize: 11 }}
-                          >
-                            {materialCategories.map((category) => (
-                              <option key={`${item.value}-${category}`} value={category}>{category}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>λ</span>
+                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>参照・メモ（国交省表番号・JIS 等）</span>
                           <input
-                            type="number"
-                            step="0.001"
-                            min="0"
-                            value={item.λ}
-                            onChange={(e) => updateMaterialLambda(editingCategory, item.value, parseFloat(e.target.value) || 0)}
-                            style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
-                          />
-                        </label>
-                        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>比重</span>
-                          <input
-                            type="number"
-                            step="0.001"
-                            min="0"
-                            value={densityDb[item.value] ?? 0}
-                            onChange={(e) => updateMaterialDensity(item.value, parseFloat(e.target.value) || 0)}
-                            style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                            value={item.memo ?? ""}
+                            onChange={(e) => updateMaterialMemo(editingCategory, item.value, e.target.value)}
+                            style={{ ...inpStyle, fontSize: 10 }}
+                            placeholder="例: 国交省 Ver.26 付録A 表1"
                           />
                         </label>
                       </div>
@@ -1263,19 +1435,31 @@ export default function InsulationCalcPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontWeight: 500 }}>熱橋面積比（U値計算用）</div>
 
-                {/* プリセット選択 */}
-                <select defaultValue="" onChange={(e) => {
-                    if (!e.target.value) return;
-                    const preset = BRIDGE_RATIO_PRESETS.find((p) => p.id === e.target.value);
-                    if (preset) { setBridgeRatios([...preset.ratios]); setIsDirty(true); }
-                    e.target.value = "";
+                {/* プリセット選択（現在値と一致する項目が表示される） */}
+                <select
+                  value={bridgePresetSelectValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__custom__") return;
+                    const preset = BRIDGE_RATIO_PRESETS.find((p) => p.id === v);
+                    if (preset) {
+                      setBridgeRatios([...preset.ratios]);
+                      setIsDirty(true);
+                    }
                   }}
-                  style={{ ...inpStyle, fontSize: 11 }}>
-                  <option value="">── プリセットを選択（国交省 Ver.15）──</option>
+                  style={{ ...inpStyle, fontSize: 11 }}
+                >
+                  <option value="__custom__" disabled={matchedBridgePresetId !== null}>
+                    {matchedBridgePresetId === null
+                      ? "手動入力（いずれのプリセットとも数値が一致しません）"
+                      : "── 別のプリセットを選択 ──"}
+                  </option>
                   {["Wall", "Ceiling", "Floor", "Roof"].map((group) => (
                     <optgroup key={group} label={group}>
                       {BRIDGE_RATIO_PRESETS.filter((p) => p.group === group).map((p) => (
-                        <option key={p.id} value={p.id}>{p.label}　熱橋={p.ratios.filter(r=>r>0).map(r=>r.toFixed(2)).join("+")} / 断熱={(1-p.ratios.reduce((s,r)=>s+r,0)).toFixed(2)}</option>
+                        <option key={p.id} value={p.id}>
+                          {p.label}　熱橋={p.ratios.filter((r) => r > 0).map((r) => r.toFixed(2)).join("+")} / 断熱={(1 - p.ratios.reduce((s, r) => s + r, 0)).toFixed(2)}
+                        </option>
                       ))}
                     </optgroup>
                   ))}
@@ -1353,11 +1537,28 @@ export default function InsulationCalcPage() {
 
           {/* 断面プレビュー（全タブ共通・常時表示） */}
           <div style={panelStyle}>
-            <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+            <div style={{
+              padding: "8px 12px",
+              borderBottom: "0.5px solid var(--color-border-tertiary)",
+              background: "var(--color-background-secondary)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 8,
+            }}>
               <span style={{ fontSize: 12, fontWeight: 500 }}>断面プレビュー</span>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={pdfExporting}
+                style={{ ...btnStyle(), fontSize: 10, padding: "2px 8px", flexShrink: 0 }}
+                title="断面・熱貫流率・固定荷重を1本のA4 PDFでダウンロード"
+              >
+                {pdfExporting ? "生成中…" : "A4 PDF"}
+              </button>
             </div>
             <div style={{ padding: 12 }}>
-              <HorizontalSection layers={layers} />
+              <HorizontalSection layers={layers} sectionCanvasRef={sectionCanvasRef} />
               <div style={legendStyle}>
                 <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#2563eb", marginRight: 3, verticalAlign: "middle" }} />Rse</span>
                 <span><span style={{ display: "inline-block", width: 10, height: 2, background: "#dc2626", marginRight: 3, verticalAlign: "middle" }} />Rsi</span>
@@ -1434,6 +1635,93 @@ export default function InsulationCalcPage() {
           )}
         </div>
       </div>
+
+      <InsulationPdfReportRoot
+        ref={reportPdfRef}
+        fullName={fullName}
+        fileMemo={fileName.memo}
+        generatedAt={pdfReportStamp || "—"}
+        surfacePart={surfacePart}
+        rsi={surfaceData.rsi}
+        rse={surfaceData.rse}
+        bridgeRatios={bridgeRatios}
+        bridgePresetLabel={bridgePresetLabelForPdf}
+        layers={layers}
+        uResult={uResult}
+        dlResult={dlResult}
+        colorMap={COLOR_MAP}
+      />
+
+      {categoryModal && (
+        <div
+          role="presentation"
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 1000,
+            background: "rgba(0,0,0,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={closeCategoryModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="category-modal-title"
+            style={{
+              width: "100%",
+              maxWidth: 380,
+              borderRadius: 8,
+              border: "0.5px solid var(--color-border-secondary)",
+              background: "var(--color-background-primary)",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+              padding: "14px 16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div id="category-modal-title" style={{ fontSize: 13, fontWeight: 600 }}>
+              {categoryModal === "rename" ? "カテゴリ名の変更" : "カテゴリの追加"}
+            </div>
+            {categoryModal === "rename" && (
+              <div style={{ fontSize: 11, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
+                現在: 「{editingCategory}」
+              </div>
+            )}
+            <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>
+                {categoryModal === "rename" ? "変更後のカテゴリ名" : "新規カテゴリ名"}
+              </span>
+              <input
+                autoFocus
+                value={categoryModalDraft}
+                onChange={(e) => setCategoryModalDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleCategoryModalConfirm();
+                  }
+                }}
+                style={inpStyle}
+                placeholder={categoryModal === "rename" ? "新しい名前" : "例: 屋根用"}
+              />
+            </label>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+              <button type="button" onClick={closeCategoryModal} style={btnStyle()}>
+                キャンセル
+              </button>
+              <button type="button" onClick={handleCategoryModalConfirm} style={btnStyle("primary")}>
+                確定
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
