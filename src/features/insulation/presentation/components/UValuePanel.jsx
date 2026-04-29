@@ -4,6 +4,16 @@ export function UValuePanel({ result, colorMap }) {
   const bridgeRatio = 1 - insulationRatio;
   const R_bridge_disp = R_bridge_disp_raw;
   const U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
+  const sumRBridge = rows.reduce((sum, row) => {
+    if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_bridge || 0);
+    if (row.flag === "断熱") return sum;
+    return sum + (row.R_bridge || 0);
+  }, 0);
+  const sumRIns = rows.reduce((sum, row) => {
+    if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_ins || 0);
+    if (row.flag === "熱橋") return sum;
+    return sum + (row.R_ins || 0);
+  }, 0);
 
   const td = (_content, opts = {}) => ({
     padding: "4px 6px",
@@ -37,15 +47,15 @@ export function UValuePanel({ result, colorMap }) {
           </colgroup>
           <thead>
             <tr style={{ background: "var(--color-background-secondary)" }}>
-              {["部分名", "λ", "d(m)", "熱橋or断熱", "熱橋部 R", "断熱部 R"].map((h) => (
+              {["部分名", "λ", "d(m)", "熱橋or断熱", "断熱部 R", "熱橋部 R"].map((h) => (
                 <th key={h} style={{ padding: "5px 6px", fontSize: 10, fontWeight: 500, color: "var(--color-text-secondary)", borderBottom: "1px solid var(--color-border-secondary)", textAlign: h === "部分名" ? "left" : "right", whiteSpace: "nowrap" }}>{h}</th>
               ))}
             </tr>
             <tr style={{ background: "var(--color-background-secondary)" }}>
               <td style={td("熱橋面積比", { muted: true })}>熱橋面積比</td>
               <td colSpan={3} />
-              <td style={{ ...td("", { mono: true, right: true }), color: "#92400e" }}>{bridgeRatio.toFixed(3)}</td>
               <td style={{ ...td("", { mono: true, right: true }), color: "#166534" }}>{insulationRatio.toFixed(3)}</td>
+              <td style={{ ...td("", { mono: true, right: true }), color: "#92400e" }}>{bridgeRatio.toFixed(3)}</td>
             </tr>
           </thead>
           <tbody>
@@ -74,19 +84,17 @@ export function UValuePanel({ result, colorMap }) {
                   </td>
                   <td style={td("", { mono: true, right: true })}>
                     {isSurface
-                      ? row.R_bridge.toFixed(3)
-                      : row.flag === "熱橋＆断熱"
-                        ? row.R_bridge > 0 ? row.R_bridge.toFixed(3) : ""
-                        : row.flag === "断熱"
-                          ? row.R_ins > 0 ? row.R_ins.toFixed(3) : ""
-                          : row.R_bridge > 0 ? row.R_bridge.toFixed(3) : ""}
-                  </td>
-                  <td style={td("", { mono: true, right: true })}>
-                    {isSurface
                       ? row.R_ins.toFixed(3)
                       : row.flag === "熱橋"
                         ? "0"
                         : row.R_ins > 0 ? row.R_ins.toFixed(3) : ""}
+                  </td>
+                  <td style={td("", { mono: true, right: true })}>
+                    {isSurface
+                      ? row.R_bridge.toFixed(3)
+                      : row.flag === "断熱"
+                        ? "0"
+                        : row.R_bridge > 0 ? row.R_bridge.toFixed(3) : ""}
                   </td>
                 </tr>
               );
@@ -95,13 +103,13 @@ export function UValuePanel({ result, colorMap }) {
           <tfoot>
             <tr style={{ background: "var(--color-background-secondary)", borderTop: "1px solid var(--color-border-secondary)" }}>
               <td colSpan={4} style={{ padding: "5px 6px", fontSize: 11, fontWeight: 500 }}>ΣR = Σ(d/λ)</td>
-              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#92400e" }}>{R_bridge_disp.toFixed(3)}</td>
-              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#166534" }}>{R_common.toFixed(3)}</td>
+              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#166534" }}>{sumRIns.toFixed(3)}</td>
+              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#92400e" }}>{sumRBridge.toFixed(3)}</td>
             </tr>
             <tr style={{ background: "var(--color-background-secondary)" }}>
               <td colSpan={4} style={{ padding: "5px 6px", fontSize: 11, fontWeight: 500 }}>Un = 1/ΣR</td>
-              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#92400e" }}>{U_bridge_disp.toFixed(3)}</td>
               <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#166534" }}>{U_ins.toFixed(3)}</td>
+              <td style={{ padding: "5px 6px", fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 500, textAlign: "right", color: "#92400e" }}>{U_bridge_disp.toFixed(3)}</td>
             </tr>
             <tr style={{ background: "#dbeafe", borderTop: "1px solid #93c5fd" }}>
               <td colSpan={5} style={{ padding: "7px 6px", fontSize: 12, fontWeight: 500, color: "#0C447C" }}>

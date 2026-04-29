@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { UValuePanel } from "../components/UValuePanel";
 import { useInsulationCalc } from "../hooks/useInsulationCalc";
+import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
 
 // ============================================================
 // λデータベース（_部位別熱貫流率_new.xlsx「材料種別の熱伝導率」）
@@ -252,6 +253,14 @@ function defaultLayer(i) {
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
+
+function getLambda(category, material) {
+  return resolveLambda(MATERIAL_DB, category, material);
+}
+
+function getDensityKgM3(material) {
+  return resolveDensityKgM3(DENSITY_DB, material);
+}
 
 // ============================================================
 // 断面図キャンバス
