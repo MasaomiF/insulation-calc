@@ -149,55 +149,47 @@ const COLOR_MAP = {
 
 // ============================================================
 // データ構造ヘルパー
-// layer.materials[0] = 断熱部（全面、ratioForUは自動 = 1 - Σ熱橋比率）
-// layer.materials[1+] = 熱橋部（ratioForU手動入力、合計=1の制約）
-// ratioForDL は熱貫流率比率とは独立した充足率
+// layer.materials[0] = 断熱部（全面）
+// layer.materials[1+] = 熱橋部
+// ratioForU は上位の bridgeRatios で一括管理
+// ratioForDL は各材料で独立設定
 // ============================================================
 function makeMat(overrides = {}) {
   return {
     materialType: "none", category: null, material: null, color: null,
-    ratioForU: 0, ratioForDL: 0,
-    dlOverridden: false,  // trueのとき ratioForDL はratioForUと独立
+    ratioForDL: 0,
+    dlOverridden: false,
     ...overrides,
   };
 }
 
-function syncRatio1(materials) {
-  const bridgeSum = materials.slice(1).reduce((s, m) => s + (parseFloat(m.ratioForU) || 0), 0);
-  const newRatioForU = parseFloat((1 - bridgeSum).toFixed(4));
-  const m0 = materials[0];
-  // material1のDLも未上書きなら同期
-  const newDL0 = m0.dlOverridden ? m0.ratioForDL : newRatioForU;
-  return [
-    { ...m0, ratioForU: newRatioForU, ratioForDL: newDL0 },
-    ...materials.slice(1),
-  ];
-}
+// 初期熱橋面積比 [熱橋1, 熱橋2, 熱橋3]
+const initialBridgeRatios = [0.17, 0, 0];
 
 function defaultLayer(i) {
   const presets = [
     { switchOn: true, surfacetype: "none", thickness: 15, materials: [
-      makeMat({ materialType: "solid", category: "非木質系壁材・下地", material: "窯業系サイディング", color: "gray", ratioForU: 1, ratioForDL: 1 }),
+      makeMat({ materialType: "solid", category: "非木質系壁材・下地", material: "窯業系サイディング", color: "gray", ratioForDL: 1 }),
     ]},
     { switchOn: true, surfacetype: "none", thickness: 18, materials: [
-      makeMat({ materialType: "air", color: "lightcyan", ratioForU: 0.83, ratioForDL: 0.83 }),
-      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "rosybrown", ratioForU: 0.17, ratioForDL: 0.059 }),
+      makeMat({ materialType: "air", color: "lightcyan", ratioForDL: 0.83 }),
+      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "rosybrown", ratioForDL: 0.059 }),
     ]},
     { switchOn: true, surfacetype: "rse", thickness: 105, materials: [
-      makeMat({ materialType: "solid", category: "グラスウール", material: "高性能グラスウール HG16-38", color: "khaki", ratioForU: 0.83, ratioForDL: 0.83 }),
-      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "tan", ratioForU: 0.17, ratioForDL: 0.099 }),
+      makeMat({ materialType: "solid", category: "グラスウール", material: "高性能グラスウール HG16-38", color: "khaki", ratioForDL: 0.83 }),
+      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "tan", ratioForDL: 0.099 }),
     ]},
     { switchOn: true, surfacetype: "rsi", thickness: 15, materials: [
-      makeMat({ materialType: "air", color: "lightcyan", ratioForU: 0.83, ratioForDL: 0.83 }),
-      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "tan", ratioForU: 0.17, ratioForDL: 0.099 }),
+      makeMat({ materialType: "air", color: "lightcyan", ratioForDL: 0.83 }),
+      makeMat({ materialType: "solid", category: "よく使う材料", material: "天然木材", color: "tan", ratioForDL: 0.099 }),
     ]},
     { switchOn: true, surfacetype: "none", thickness: 12.5, materials: [
-      makeMat({ materialType: "solid", category: "よく使う材料", material: "せっこうボード(GB-R)", color: "darkolivegreen", ratioForU: 1, ratioForDL: 1 }),
+      makeMat({ materialType: "solid", category: "よく使う材料", material: "せっこうボード(GB-R)", color: "darkolivegreen", ratioForDL: 1 }),
     ]},
   ];
   if (i < presets.length) return presets[i];
   return { switchOn: false, surfacetype: "none", thickness: null,
-    materials: [makeMat({ materialType: "solid", ratioForU: 1, ratioForDL: 1 })] };
+    materials: [makeMat({ materialType: "solid", ratioForDL: 1 })] };
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
@@ -224,11 +216,11 @@ function calcR(mat, thickness) {
 }
 
 /*
- * U値計算（Excelロジック）
- * 戻り値に rows[] を追加 → 各行: { label, λ, d, flag, R_bridge, R_ins }
- * flag: "断熱" | "熱橋" | "熱橋＆断熱"
+ * U値計算（bridgeRatios = 上位で設定した熱橋面積比配列）
+ * bridgeRatios[0] = 熱橋1の比率, [1] = 熱橋2, [2] = 熱橋3
+ * 断熱部比率 = 1 - Σbridgeratios
  */
-function calculateUValue(layers, rsi, rse) {
+function calculateUValue(layers, rsi, rse, bridgeRatios) {
   let startLayer = 0, endLayer = layers.length - 1;
   for (let i = 0; i < layers.length; i++) {
     if (layers[i]?.surfacetype === "rse") { startLayer = i; break; }
@@ -238,74 +230,68 @@ function calculateUValue(layers, rsi, rse) {
   }
 
   let R_common = rsi + rse;
-  const bridgeItems = [];
-  const rows = []; // Excel表示用行データ
+  // 熱橋ごとのR追加分 { R_extra }[]（最大3つ）
+  const bridgeRExtras = [0, 0, 0];
+  const rows = [];
 
-  // Rsi行
-  rows.push({ label: `室内側表面熱抵抗 Rsi`, λ: "—", d: "—", flag: "両", R_bridge: rsi, R_ins: rsi });
+  rows.push({ label: "室内側表面熱抵抗 Rsi", λ: "—", d: "—", flag: "両", R_bridge: rsi, R_ins: rsi });
 
   for (let i = startLayer; i <= endLayer; i++) {
     const layer = layers[i];
     if (!layer?.switchOn || !layer.thickness) continue;
     const { materials, thickness } = layer;
     const d = thickness / 1000;
+    const hasBridge = materials.slice(1).some((m) => m.materialType !== "none");
 
-    // material1（断熱部・全面）
     const m1 = materials[0];
     const λ1 = m1.materialType === "air" ? "空気層" : getLambda(m1.category, m1.material);
     const r1 = calcR(m1, thickness);
-    const matName1 = m1.materialType === "air" ? "空気層" : (m1.material || "（未設定）");
-
-    // material2+（熱橋部）があるかどうかで flag を決定
-    const hasBridge = materials.slice(1).some((m) => m.materialType !== "none");
+    const name1 = m1.materialType === "air" ? "空気層" : (m1.material || "（未設定）");
 
     if (hasBridge) {
-      // material1は両経路（断熱＆熱橋）
       if (r1 != null) {
-        rows.push({ label: matName1, λ: typeof λ1 === "number" ? λ1 : λ1, d, flag: "熱橋＆断熱", R_bridge: r1, R_ins: r1, color: m1.color });
+        rows.push({ label: name1, λ: λ1, d, flag: "熱橋＆断熱", R_bridge: r1, R_ins: r1, color: m1.color });
         R_common += r1;
       }
-      // material2+は熱橋経路のみ
       materials.slice(1).forEach((mj, ji) => {
         if (mj.materialType === "none") return;
         const λj = mj.materialType === "air" ? "空気層" : getLambda(mj.category, mj.material);
         const rj = calcR(mj, thickness);
         const nameJ = mj.materialType === "air" ? "空気層" : (mj.material || "（未設定）");
         if (rj != null) {
-          rows.push({ label: nameJ, λ: typeof λj === "number" ? λj : λj, d, flag: "熱橋", R_bridge: rj, R_ins: 0, color: mj.color });
-          bridgeItems.push({ ratio: parseFloat(mj.ratioForU) || 0, R_extra: rj });
+          rows.push({ label: nameJ, λ: λj, d, flag: "熱橋", R_bridge: rj, R_ins: 0, color: mj.color });
+          if (ji < 3) bridgeRExtras[ji] += rj;
         }
       });
     } else {
-      // 熱橋なし → 断熱経路のみ
       if (r1 != null) {
-        rows.push({ label: matName1, λ: typeof λ1 === "number" ? λ1 : λ1, d, flag: "断熱", R_bridge: 0, R_ins: r1, color: m1.color });
+        rows.push({ label: name1, λ: λ1, d, flag: "断熱", R_bridge: 0, R_ins: r1, color: m1.color });
         R_common += r1;
       }
     }
   }
 
-  // Rse行
-  rows.push({ label: `外気側表面熱抵抗 Rse`, λ: "—", d: "—", flag: "両", R_bridge: rse, R_ins: rse });
+  rows.push({ label: "外気側表面熱抵抗 Rse", λ: "—", d: "—", flag: "両", R_bridge: rse, R_ins: rse });
 
-  const U_ins = R_common > 0 ? 1 / R_common : 0;
-  let totalBridgeRatio = bridgeItems.reduce((s, b) => s + b.ratio, 0);
+  const totalBridgeRatio = bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0);
   const insulationRatio = Math.max(0, 1 - totalBridgeRatio);
+  const U_ins = R_common > 0 ? 1 / R_common : 0;
 
   let uFinal = U_ins * insulationRatio;
-  const bridgeResults = bridgeItems.map((b) => {
-    const R_bridge = R_common + b.R_extra;
+  const bridgeResults = bridgeRatios.map((ratio, idx) => {
+    const r = parseFloat(ratio) || 0;
+    if (r <= 0) return null;
+    const R_bridge = R_common + bridgeRExtras[idx];
     const U_bridge = R_bridge > 0 ? 1 / R_bridge : 0;
-    uFinal += U_bridge * b.ratio;
-    return { ratio: b.ratio, R: R_bridge, U: U_bridge };
-  });
+    uFinal += U_bridge * r;
+    return { ratio: r, R: R_bridge, U: U_bridge, index: idx };
+  }).filter(Boolean);
 
-  // ΣR（熱橋部）= R_common + Σ各熱橋のR_extra（加重平均）
-  const R_bridge_total = bridgeItems.length > 0
-    ? bridgeItems.reduce((s, b) => s + (R_common + b.R_extra) * b.ratio, 0) / (totalBridgeRatio || 1)
+  const R_bridge_disp = bridgeResults.length > 0
+    ? bridgeResults.reduce((s, b) => s + b.R * b.ratio, 0) / (totalBridgeRatio || 1)
     : R_common;
 
-  return { uFinal, U_ins, R_common, R_bridge_total, insulationRatio, bridgeResults, rows, startLayer, endLayer };
+  return { uFinal, U_ins, R_common, R_bridge_disp, insulationRatio, bridgeResults, rows, startLayer, endLayer };
 }
 
 function calculateDeadLoad(layers) {
@@ -453,49 +439,14 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove }) {
         {Object.entries(COLOR_MAP).map(([k]) => <option key={k} value={k} style={{ background: COLOR_MAP[k] }}>{k}</option>)}
       </select>
 
-      {/* 比率入力 */}
+      {/* 比率入力：DL充足率のみ */}
       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 5px", alignItems: "center" }}>
-        <span style={S.lbl}>U比率</span>
-        {isFirst ? (
-          <div style={{ ...S.num, background: "var(--color-background-secondary)", color: "var(--color-text-secondary)", padding: "2px 4px", display: "block" }}>
-            {(parseFloat(mat.ratioForU) || 0).toFixed(3)}
-          </div>
-        ) : (
-          <input type="number" min="0" max="1" step="0.001" value={mat.ratioForU}
-            onChange={(e) => {
-              const newU = parseFloat(e.target.value) || 0;
-              // DL未上書きなら連動
-              const newDL = mat.dlOverridden ? mat.ratioForDL : newU;
-              onChange({ ...mat, ratioForU: newU, ratioForDL: newDL });
-            }} style={S.num} />
-        )}
-
-        {/* DL充足率ラベル＋同期チェック */}
-        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-          <span style={S.lbl}>DL充足率</span>
-          <label title="U比率と連動" style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={!mat.dlOverridden}
-              onChange={(e) => {
-                const sync = e.target.checked;
-                onChange({
-                  ...mat,
-                  dlOverridden: !sync,
-                  ratioForDL: sync ? mat.ratioForU : mat.ratioForDL,
-                });
-              }}
-              style={{ width: 10, height: 10, accentColor: "#185FA5", margin: 0 }}
-            />
-            <span style={{ fontSize: 9, color: "#185FA5", marginLeft: 2 }}>連動</span>
-          </label>
-        </div>
+        <span style={S.lbl}>DL充足率</span>
         <input
           type="number" min="0" max="1" step="0.001"
           value={mat.ratioForDL}
-          disabled={!mat.dlOverridden && !isFirst}
-          onChange={(e) => onChange({ ...mat, ratioForDL: parseFloat(e.target.value) || 0, dlOverridden: true })}
-          style={{ ...S.num, background: mat.dlOverridden ? "var(--color-background-primary)" : "var(--color-background-secondary)", color: mat.dlOverridden ? "var(--color-text-primary)" : "var(--color-text-secondary)" }}
+          onChange={(e) => onChange({ ...mat, ratioForDL: parseFloat(e.target.value) || 0 })}
+          style={S.num}
         />
       </div>
 
@@ -517,26 +468,17 @@ function LayerRow({ layer, index, onChange }) {
 
   const updateMat = (mi, newMat) => {
     const mats = [...layer.materials];
-    // 熱橋部(mi>0)のratioForU変更時、DL未上書きなら連動
-    if (mi > 0 && newMat.ratioForU !== mats[mi].ratioForU && !newMat.dlOverridden) {
-      newMat = { ...newMat, ratioForDL: newMat.ratioForU };
-    }
     mats[mi] = newMat;
-    onChange({ ...layer, materials: syncRatio1(mats) });
+    onChange({ ...layer, materials: mats });
   };
 
   const addMat = () => {
-    const mats = [...layer.materials, makeMat({ materialType: "solid", ratioForU: 0, ratioForDL: 0, dlOverridden: false })];
-    onChange({ ...layer, materials: syncRatio1(mats) });
+    onChange({ ...layer, materials: [...layer.materials, makeMat({ materialType: "solid", ratioForDL: 0 })] });
   };
 
   const removeMat = (mi) => {
-    const mats = layer.materials.filter((_, i) => i !== mi);
-    onChange({ ...layer, materials: syncRatio1(mats) });
+    onChange({ ...layer, materials: layer.materials.filter((_, i) => i !== mi) });
   };
-
-  const totalRatio = layer.materials.reduce((s, m) => s + (parseFloat(m.ratioForU) || 0), 0);
-  const ratioOk = Math.abs(totalRatio - 1) < 0.005;
 
   return (
     <div style={{
@@ -571,16 +513,11 @@ function LayerRow({ layer, index, onChange }) {
             <span style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>mm</span>
           </div>
 
-          {/* U比率合計 */}
-          <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: ratioOk ? "#166534" : "#991b1b", background: ratioOk ? "#dcfce7" : "#fee2e2", padding: "1px 6px", borderRadius: 3 }}>
-            Σ={totalRatio.toFixed(3)}
-          </span>
-
           {layer.materials.length < 4 && (
-            <button onClick={addMat} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "0.5px solid #185FA5", background: "none", color: "#185FA5", cursor: "pointer", marginLeft: "auto" }}>
-              + 熱橋追加
-            </button>
-          )}
+              <button onClick={addMat} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, border: "0.5px solid #185FA5", background: "none", color: "#185FA5", cursor: "pointer", marginLeft: "auto" }}>
+                + 熱橋追加
+              </button>
+            )}
         </>)}
       </div>
 
@@ -674,12 +611,10 @@ function SectionPreview({ layers, uResult }) {
 // ============================================================
 function UValuePanel({ result, layers }) {
   if (!result) return null;
-  const { rows, R_common, R_bridge_total, U_ins, bridgeResults, uFinal, insulationRatio } = result;
-
-  // 熱橋部ΣR・U値（加重平均済み代表値を表示）
-  const R_bridge_disp = bridgeResults.length > 0 ? R_bridge_total : R_common;
-  const U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
+  const { rows, R_common, R_bridge_disp: R_bridge_disp_raw, U_ins, bridgeResults, uFinal, insulationRatio } = result;
   const bridge_ratio = 1 - insulationRatio;
+  const R_bridge_disp = R_bridge_disp_raw;
+  const U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
 
   const td = (content, opts = {}) => ({
     padding: "4px 6px",
@@ -951,6 +886,7 @@ export default function InsulationCalc() {
   const [layers, setLayers] = useState(initialLayers);
   const [surfacePart, setSurfacePart] = useState("外壁(通気層)");
   const [activeTab, setActiveTab] = useState("section");
+  const [bridgeRatios, setBridgeRatios] = useState(initialBridgeRatios);
 
   // ── ファイル管理 state ──
   const [fileName, setFileName] = useState({ part: "", midName: "", number: "", memo: "" });
@@ -960,7 +896,7 @@ export default function InsulationCalc() {
   const fileInputRef = useRef(null);
 
   const surfaceData = RSI_RSE_VALUES.find((r) => r.part === surfacePart) || RSI_RSE_VALUES[4];
-  const uResult = calculateUValue(layers, surfaceData.rsi, surfaceData.rse);
+  const uResult = calculateUValue(layers, surfaceData.rsi, surfaceData.rse, bridgeRatios);
   const dlResult = calculateDeadLoad(layers);
 
   const updateLayer = useCallback((i, val) => {
@@ -995,7 +931,7 @@ export default function InsulationCalc() {
     if (!fileName.part && !fileName.midName && !fileName.number) {
       showMsg("err", "ファイル名を入力してください"); return;
     }
-    const data = { fullName, memo: fileName.memo, layers, surfacePart, savedAt: new Date().toISOString() };
+    const data = { fullName, memo: fileName.memo, layers, surfacePart, bridgeRatios, savedAt: new Date().toISOString() };
     downloadJSON(data, `${fullName}.json`);
     setIsDirty(false);
     showMsg("ok", `「${fullName}.json」をダウンロードしました`);
@@ -1034,6 +970,7 @@ export default function InsulationCalc() {
         const data = JSON.parse(ev.target.result);
         setLayers(data.layers);
         setSurfacePart(data.surfacePart || "外壁(通気層)");
+        if (data.bridgeRatios) setBridgeRatios(data.bridgeRatios);
         const parts = (data.fullName || "").split("-");
         setFileName({ part: parts[0] || "", midName: parts[1] || "", number: parts[2] || "", memo: data.memo || "" });
         setIsDirty(false);
@@ -1199,6 +1136,66 @@ export default function InsulationCalc() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* 熱橋面積比設定パネル */}
+          <div style={panelStyle}>
+            <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
+              <span style={{ fontSize: 12, fontWeight: 500 }}>熱橋面積比（U値計算用）</span>
+            </div>
+            <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {/* 断熱部は自動表示 */}
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>断熱部</span>
+                <div style={{ height: 6, borderRadius: 3, background: "#dbeafe", position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${uResult.insulationRatio * 100}%`, background: "#185FA5", borderRadius: 3 }} />
+                </div>
+                <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", minWidth: 42, textAlign: "right" }}>
+                  {uResult.insulationRatio.toFixed(3)}
+                </span>
+              </div>
+
+              {[0, 1, 2].map((idx) => (
+                <div key={idx} style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
+                  <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>熱橋 {idx + 1}</span>
+                  <input
+                    type="range" min="0" max="0.5" step="0.001"
+                    value={bridgeRatios[idx]}
+                    onChange={(e) => {
+                      const newRatios = [...bridgeRatios];
+                      newRatios[idx] = parseFloat(e.target.value);
+                      setBridgeRatios(newRatios);
+                      setIsDirty(true);
+                    }}
+                    style={{ width: "100%", accentColor: "#92400e" }}
+                  />
+                  <input
+                    type="number" min="0" max="0.5" step="0.001"
+                    value={bridgeRatios[idx]}
+                    onChange={(e) => {
+                      const newRatios = [...bridgeRatios];
+                      newRatios[idx] = parseFloat(e.target.value) || 0;
+                      setBridgeRatios(newRatios);
+                      setIsDirty(true);
+                    }}
+                    style={{ ...inpStyle, width: 58, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                  />
+                </div>
+              ))}
+
+              {/* 合計チェック */}
+              {(() => {
+                const total = bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0);
+                const ok = total <= 1.0;
+                return (
+                  <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", padding: "3px 8px", borderRadius: 3,
+                    background: ok ? "#f0fdf4" : "#fee2e2", color: ok ? "#166534" : "#991b1b" }}>
+                    Σ熱橋 = {total.toFixed(3)}　断熱部 = {(1 - total).toFixed(3)}
+                    {!ok && "　⚠ 合計が1を超えています"}
+                  </div>
+                );
+              })()}
+            </div>
           </div>
 
           {/* 断面構成パネル */}
