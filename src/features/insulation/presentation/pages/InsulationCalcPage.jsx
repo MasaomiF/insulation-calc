@@ -10,6 +10,7 @@ import {
   INITIAL_MATERIAL_DB,
   normalizeMaterialDbEntries,
   normalizeDensityDbEntries,
+  mergeMaterialDbWithCatalog,
   findLambdaDuplicateGroupsInDb,
 } from "../../domain/constants/materialDatabase";
 
@@ -819,7 +820,7 @@ export default function InsulationCalcPage() {
   function normalizeLoadedData(raw) {
     const schemaVersion = Number(raw?.schemaVersion || 1);
     const rawMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
-    const loadedMaterialDb = normalizeMaterialDbEntries(rawMaterialDb);
+    const loadedMaterialDb = mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(rawMaterialDb));
     const loadedDensityDb = normalizeDensityDbEntries(raw?.densityDb);
 
     let loadedLayers = Array.isArray(raw?.layers) ? raw.layers : initialLayers;

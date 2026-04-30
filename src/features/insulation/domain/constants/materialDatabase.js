@@ -73,6 +73,39 @@ export function normalizeMaterialDbEntries(materialDb) {
 }
 
 /**
+ * 保存 JSON の materialDb にカタログ追加分をマージする（旧ファイルに「余力」等が無い場合の補完）。
+ * カテゴリごとにカタログ行を基準とし、同一 value は保存側の編集で上書き。カタログに無い行はユーザー追加として末尾に残す。
+ * @param {Record<string, unknown[]> | null | undefined} normalizedUserDb normalizeMaterialDbEntries 済み想定
+ */
+export function mergeMaterialDbWithCatalog(normalizedUserDb) {
+  const catalogDb = buildMaterialDb(MATERIAL_CATALOG);
+  const user = normalizedUserDb && typeof normalizedUserDb === "object" ? normalizedUserDb : {};
+  /** @type {Record<string, { label: string, value: string, λ: number | null, memo: string }[]>} */
+  const out = {};
+
+  for (const category of Object.keys(catalogDb)) {
+    const catalogItems = catalogDb[category] || [];
+    const userItems = Array.isArray(user[category]) ? user[category] : [];
+    const userByValue = new Map(userItems.map((it) => [it.value, it]));
+    const merged = catalogItems.map((c) => {
+      const u = userByValue.get(c.value);
+      return u ? { ...c, ...u, label: u.label ?? c.label, value: c.value } : { ...c };
+    });
+    for (const u of userItems) {
+      if (!u?.value) continue;
+      if (!catalogItems.some((c) => c.value === u.value)) merged.push(u);
+    }
+    out[category] = merged;
+  }
+
+  for (const [category, items] of Object.entries(user)) {
+    if (out[category]) continue;
+    out[category] = Array.isArray(items) ? items.map((it) => ({ ...it })) : [];
+  }
+  return out;
+}
+
+/**
  * λ（小数第4位まで同一）を共有する材料のグループ。運用時の突き合わせ用。
  * @param {Record<string, { λ: number | null, value: string }[]> | null | undefined} materialDb
  * @returns {{ λ: number, materials: string[] }[]}
