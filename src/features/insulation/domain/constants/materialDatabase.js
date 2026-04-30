@@ -105,6 +105,11 @@ export function mergeMaterialDbWithCatalog(normalizedUserDb) {
   return out;
 }
 
+/** 初期表示・新規作成用。カタログ追加分を含む物性 DB を返す。 */
+export function getFreshMergedMaterialDb() {
+  return mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(INITIAL_MATERIAL_DB));
+}
+
 /**
  * λ（小数第4位まで同一）を共有する材料のグループ。運用時の突き合わせ用。
  * @param {Record<string, { λ: number | null, value: string }[]> | null | undefined} materialDb

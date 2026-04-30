@@ -8,6 +8,7 @@ import { useInsulationCalc } from "../hooks/useInsulationCalc";
 import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
 import {
   INITIAL_MATERIAL_DB,
+  getFreshMergedMaterialDb,
   normalizeMaterialDbEntries,
   normalizeDensityDbEntries,
   mergeMaterialDbWithCatalog,
@@ -150,7 +151,7 @@ function defaultLayer(i) {
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
-const SAVE_SCHEMA_VERSION = 3;
+const SAVE_SCHEMA_VERSION = 4;
 
 /** Rse/Rsi は各1レイヤーのみ。配列上は上が室外なので index(Rse) < index(Rsi)。違反・重複は後勝ちで解除 */
 function sanitizeRsSurfaceLayers(inputLayers) {
@@ -381,11 +382,11 @@ function MaterialCard({ mat, isFirst, onChange, onRemove, canRemove, materialDb,
         />
       </div>
 
-      {/* λ/ρ表示（λ なし材料は比重のみ） */}
-      {mat.materialType === "solid" && (λ != null || rho > 0) && (
+      {/* λ/ρ表示（余白など λ・比重0でも材料選択済みなら表示） */}
+      {mat.materialType === "solid" && mat.material && (
         <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}>
           {λ != null ? `λ=${λ}` : "λなし"}
-          {rho > 0 ? ` ρ=${(rho / 1000).toFixed(3)}g/cm³` : ""}
+          {` ρ=${(rho / 1000).toFixed(3)}g/cm³`}
         </div>
       )}
     </div>
@@ -727,7 +728,7 @@ function DeadLoadPanel({ result, layers }) {
 // メインアプリ
 // ============================================================
 export default function InsulationCalcPage() {
-  const [materialDb, setMaterialDb] = useState(INITIAL_MATERIAL_DB);
+  const [materialDb, setMaterialDb] = useState(() => getFreshMergedMaterialDb());
   const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
   const [densityDb, setDensityDb] = useState(() => normalizeDensityDbEntries(undefined));
   const [showDbPanel, setShowDbPanel] = useState(true);
@@ -741,6 +742,12 @@ export default function InsulationCalcPage() {
   const [surfacePart, setSurfacePart] = useState("外壁（通気層等）");
   const [activeTab, setActiveTab] = useState("section");
   const [bridgeRatios, setBridgeRatios] = useState(initialBridgeRatios);
+  const [skipUValueCalculation, setSkipUValueCalculation] = useState(false);
+  const bridgeTotalForU = useMemo(
+    () => bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0),
+    [bridgeRatios]
+  );
+  const insulationRatioFromBridging = useMemo(() => Math.max(0, 1 - bridgeTotalForU), [bridgeTotalForU]);
   const matchedBridgePresetId = useMemo(() => findMatchingBridgePresetId(bridgeRatios), [bridgeRatios]);
   const bridgePresetSelectValue = matchedBridgePresetId ?? "__custom__";
   const bridgePresetLabelForPdf = useMemo(() => {
@@ -759,6 +766,12 @@ export default function InsulationCalcPage() {
   const [pdfExporting, setPdfExporting] = useState(false);
   const [pdfReportStamp, setPdfReportStamp] = useState("");
 
+  // マウント時にカタログ追加分（余白等）を materialDb / densityDb へ取り込む（旧セッション・未マージ state 対策）
+  useEffect(() => {
+    setMaterialDb((prev) => mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(prev)));
+    setDensityDb((prev) => normalizeDensityDbEntries(prev));
+  }, []);
+
   const surfaceData = RSI_RSE_VALUES.find((r) => r.part === surfacePart) || RSI_RSE_VALUES[4];
   const { uResult, dlResult } = useInsulationCalc({
     layers,
@@ -766,7 +779,9 @@ export default function InsulationCalcPage() {
     bridgeRatios,
     materialDb,
     densityDb,
+    skipUValueCalculation,
   });
+  const insulationRatioForBar = skipUValueCalculation ? insulationRatioFromBridging : uResult.insulationRatio;
 
   const updateLayer = useCallback((i, val) => {
     setLayers((prev) => {
@@ -812,6 +827,7 @@ export default function InsulationCalcPage() {
       bridgeRatios,
       materialDb,
       densityDb,
+      skipUValueCalculation,
       savedAt: new Date().toISOString(),
       ...overrides,
     };
@@ -846,6 +862,7 @@ export default function InsulationCalcPage() {
       bridgeRatios: loadedBridgeRatios,
       materialDb: loadedMaterialDb,
       densityDb: loadedDensityDb,
+      skipUValueCalculation: raw?.skipUValueCalculation === true,
     };
   }
 
@@ -1117,6 +1134,7 @@ export default function InsulationCalcPage() {
         setBridgeRatios(data.bridgeRatios);
         setMaterialDb(data.materialDb);
         setDensityDb(data.densityDb);
+        setSkipUValueCalculation(Boolean(data.skipUValueCalculation));
         const firstCategory = Object.keys(data.materialDb)[0];
         if (firstCategory) setEditingCategory(firstCategory);
         const parts = (data.fullName || "").split(/[-_]/);
@@ -1134,9 +1152,10 @@ export default function InsulationCalcPage() {
     if (isDirty && !window.confirm("未保存の変更があります。新規作成しますか？")) return;
     setLayers(sanitizeRsSurfaceLayers(initialLayers));
     setSurfacePart("外壁（通気層等）");
-    setMaterialDb(INITIAL_MATERIAL_DB);
+    setMaterialDb(getFreshMergedMaterialDb());
     setDensityDb(normalizeDensityDbEntries(undefined));
     setEditingCategory(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
+    setSkipUValueCalculation(false);
     setFileName({ part: "", midName: "", number: "", memo: "" });
     setIsDirty(false);
     showMsg("ok", "新規作成しました");
@@ -1468,6 +1487,18 @@ export default function InsulationCalcPage() {
               {/* 区切り線 */}
               <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)" }} />
 
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={skipUValueCalculation}
+                  onChange={(e) => {
+                    setSkipUValueCalculation(e.target.checked);
+                    setIsDirty(true);
+                  }}
+                />
+                <span>熱貫流率を計算しない</span>
+              </label>
+
               {/* 熱橋面積比 */}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontWeight: 500 }}>熱橋面積比（U値計算用）</div>
@@ -1506,10 +1537,10 @@ export default function InsulationCalcPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 8, alignItems: "center" }}>
                   <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 56 }}>断熱部</span>
                   <div style={{ height: 6, borderRadius: 3, background: "#dbeafe", position: "relative", overflow: "hidden" }}>
-                    <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${uResult.insulationRatio * 100}%`, background: "#185FA5", borderRadius: 3 }} />
+                    <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${insulationRatioForBar * 100}%`, background: "#185FA5", borderRadius: 3 }} />
                   </div>
                   <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", minWidth: 42, textAlign: "right" }}>
-                    {uResult.insulationRatio.toFixed(3)}
+                    {insulationRatioForBar.toFixed(3)}
                   </span>
                 </div>
 
@@ -1649,12 +1680,28 @@ export default function InsulationCalcPage() {
             <div style={panelStyle}>
               <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 12, fontWeight: 500 }}>熱貫流率計算</span>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 500, color: "#0C447C" }}>
-                  U = {uResult.uFinal.toFixed(3)} W/(m²·K)
-                </span>
+                {!skipUValueCalculation && uResult && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 500, color: "#0C447C" }}>
+                    U = {uResult.uFinal.toFixed(3)} W/(m²·K)
+                  </span>
+                )}
               </div>
               <div style={{ padding: 12 }}>
-                <UValuePanel result={uResult} colorMap={COLOR_MAP} />
+                {skipUValueCalculation || !uResult ? (
+                  <div style={{
+                    padding: "20px 16px",
+                    borderRadius: "var(--border-radius-md)",
+                    background: "var(--color-background-secondary)",
+                    border: "0.5px solid var(--color-border-tertiary)",
+                    fontSize: 12,
+                    color: "var(--color-text-secondary)",
+                    lineHeight: 1.55,
+                  }}>
+                    「熱貫流率を計算しない」が有効のため、熱貫流率（U値）の計算は行っていません。計算条件のチェックを外すと、ここに計算結果が表示されます。
+                  </div>
+                ) : (
+                  <UValuePanel result={uResult} colorMap={COLOR_MAP} />
+                )}
               </div>
             </div>
           )}

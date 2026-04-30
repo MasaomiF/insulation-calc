@@ -79,19 +79,27 @@ export const InsulationPdfReportRoot = forwardRef(function InsulationPdfReportRo
   const bridgeTotal = bridgeRatios.reduce((s, r) => s + (parseFloat(r) || 0), 0);
   const insulationPart = 1 - bridgeTotal;
 
-  const sumRBridge = uResult.rows.reduce((sum, row) => {
-    if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_bridge || 0);
-    if (row.flag === "断熱") return sum;
-    return sum + (row.R_bridge || 0);
-  }, 0);
-  const sumRIns = uResult.rows.reduce((sum, row) => {
-    if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_ins || 0);
-    if (row.flag === "熱橋") return sum;
-    return sum + (row.R_ins || 0);
-  }, 0);
-  const R_bridge_disp = uResult.R_bridge_disp;
-  const U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
-  const bridgeRatio = 1 - uResult.insulationRatio;
+  const hasUValue = uResult != null;
+  let sumRBridge = 0;
+  let sumRIns = 0;
+  let R_bridge_disp = 0;
+  let U_bridge_disp = 0;
+  let bridgeRatio = 0;
+  if (hasUValue) {
+    sumRBridge = uResult.rows.reduce((sum, row) => {
+      if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_bridge || 0);
+      if (row.flag === "断熱") return sum;
+      return sum + (row.R_bridge || 0);
+    }, 0);
+    sumRIns = uResult.rows.reduce((sum, row) => {
+      if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_ins || 0);
+      if (row.flag === "熱橋") return sum;
+      return sum + (row.R_ins || 0);
+    }, 0);
+    R_bridge_disp = uResult.R_bridge_disp;
+    U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
+    bridgeRatio = 1 - uResult.insulationRatio;
+  }
 
   const activeLayers = layers.filter((l) => l.switchOn && l.thickness);
 
@@ -200,51 +208,60 @@ export const InsulationPdfReportRoot = forwardRef(function InsulationPdfReportRo
             )}
           </div>
 
-          <div style={box}>
-            <div style={h2}>熱貫流率</div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#0C447C", marginBottom: 4 }}>
-              U = {uResult.uFinal.toFixed(3)} W/(m²·K)
+          {hasUValue ? (
+            <div style={box}>
+              <div style={h2}>熱貫流率</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#0C447C", marginBottom: 4 }}>
+                U = {uResult.uFinal.toFixed(3)} W/(m²·K)
+              </div>
+              <table style={tableBase}>
+                <colgroup>
+                  <col style={{ width: "34%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "14%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th style={th}>部分</th>
+                    <th style={{ ...th, textAlign: "right" }}>λ</th>
+                    <th style={{ ...th, textAlign: "right" }}>d</th>
+                    <th style={{ ...th, textAlign: "center" }}>区分</th>
+                    <th style={{ ...th, textAlign: "right" }}>R断</th>
+                    <th style={{ ...th, textAlign: "right" }}>R橋</th>
+                  </tr>
+                  <tr>
+                    <td style={td}>熱橋比</td>
+                    <td colSpan={3} />
+                    <td style={{ ...tdR, color: "#166534" }}>{uResult.insulationRatio.toFixed(3)}</td>
+                    <td style={{ ...tdR, color: "#92400e" }}>{bridgeRatio.toFixed(3)}</td>
+                  </tr>
+                </thead>
+                <tbody>{uResult.rows.map((row, i) => uRowCells(row, i, colorMap))}</tbody>
+                <tfoot>
+                  <tr style={{ background: "#f3f4f6" }}>
+                    <td colSpan={4} style={{ ...td, fontWeight: 600 }}>ΣR</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: "#166534" }}>{sumRIns.toFixed(3)}</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: "#92400e" }}>{sumRBridge.toFixed(3)}</td>
+                  </tr>
+                  <tr style={{ background: "#f3f4f6" }}>
+                    <td colSpan={4} style={{ ...td, fontWeight: 600 }}>Un</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: "#166534" }}>{uResult.U_ins.toFixed(3)}</td>
+                    <td style={{ ...tdR, fontWeight: 600, color: "#92400e" }}>{U_bridge_disp.toFixed(3)}</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-            <table style={tableBase}>
-              <colgroup>
-                <col style={{ width: "34%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-                <col style={{ width: "14%" }} />
-              </colgroup>
-              <thead>
-                <tr>
-                  <th style={th}>部分</th>
-                  <th style={{ ...th, textAlign: "right" }}>λ</th>
-                  <th style={{ ...th, textAlign: "right" }}>d</th>
-                  <th style={{ ...th, textAlign: "center" }}>区分</th>
-                  <th style={{ ...th, textAlign: "right" }}>R断</th>
-                  <th style={{ ...th, textAlign: "right" }}>R橋</th>
-                </tr>
-                <tr>
-                  <td style={td}>熱橋比</td>
-                  <td colSpan={3} />
-                  <td style={{ ...tdR, color: "#166534" }}>{uResult.insulationRatio.toFixed(3)}</td>
-                  <td style={{ ...tdR, color: "#92400e" }}>{bridgeRatio.toFixed(3)}</td>
-                </tr>
-              </thead>
-              <tbody>{uResult.rows.map((row, i) => uRowCells(row, i, colorMap))}</tbody>
-              <tfoot>
-                <tr style={{ background: "#f3f4f6" }}>
-                  <td colSpan={4} style={{ ...td, fontWeight: 600 }}>ΣR</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: "#166534" }}>{sumRIns.toFixed(3)}</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: "#92400e" }}>{sumRBridge.toFixed(3)}</td>
-                </tr>
-                <tr style={{ background: "#f3f4f6" }}>
-                  <td colSpan={4} style={{ ...td, fontWeight: 600 }}>Un</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: "#166534" }}>{uResult.U_ins.toFixed(3)}</td>
-                  <td style={{ ...tdR, fontWeight: 600, color: "#92400e" }}>{U_bridge_disp.toFixed(3)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+          ) : (
+            <div style={box}>
+              <div style={h2}>熱貫流率</div>
+              <div style={{ fontSize: 8, color: "#6b7280", lineHeight: 1.45 }}>
+                熱貫流率の計算は行っていません（「熱貫流率を計算しない」が有効なデータです）。
+              </div>
+            </div>
+          )}
 
           <div style={box}>
             <div style={h2}>固定荷重</div>

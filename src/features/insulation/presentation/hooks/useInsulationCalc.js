@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { calculateInsulationResult } from "../../application/usecases/calculateInsulationResult";
 
-export function useInsulationCalc({ layers, surfaceData, bridgeRatios, materialDb, densityDb }) {
+export function useInsulationCalc({ layers, surfaceData, bridgeRatios, materialDb, densityDb, skipUValueCalculation }) {
   return useMemo(
     () =>
       calculateInsulationResult({
@@ -11,7 +11,8 @@ export function useInsulationCalc({ layers, surfaceData, bridgeRatios, materialD
         bridgeRatios,
         materialDb,
         densityDb,
+        skipUValueCalculation: Boolean(skipUValueCalculation),
       }),
-    [layers, surfaceData, bridgeRatios, materialDb, densityDb]
+    [layers, surfaceData, bridgeRatios, materialDb, densityDb, skipUValueCalculation]
   );
 }
