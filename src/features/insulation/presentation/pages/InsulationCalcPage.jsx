@@ -14,6 +14,11 @@ import {
   mergeMaterialDbWithCatalog,
   findLambdaDuplicateGroupsInDb,
 } from "../../domain/constants/materialDatabase";
+import {
+  DEFAULT_SURFACE_PART,
+  serializeInsulationProjectDocument,
+  parseInsulationProjectDocument,
+} from "../../data/insulationProjectDocument.js";
 
 // ============================================================
 // 表面熱伝達抵抗（国土交通省 Ver.15 表3.1・3.2）
@@ -151,7 +156,6 @@ function defaultLayer(i) {
 }
 
 const initialLayers = Array.from({ length: 10 }, (_, i) => defaultLayer(i));
-const SAVE_SCHEMA_VERSION = 4;
 
 /** Rse/Rsi は各1レイヤーのみ。配列上は上が室外なので index(Rse) < index(Rsi)。違反・重複は後勝ちで解除 */
 function sanitizeRsSurfaceLayers(inputLayers) {
@@ -177,6 +181,15 @@ function sanitizeRsSurfaceLayers(inputLayers) {
   }
   return layers;
 }
+
+/** parseInsulationProjectDocument 用（モジュール内のレイヤー定義と同期） */
+const INSULATION_PROJECT_LAYER_CODEC = {
+  makeMat,
+  defaultLayer,
+  initialLayers,
+  initialBridgeRatios,
+  sanitizeRsSurfaceLayers,
+};
 
 function getLambda(materialDb, category, material) {
   return resolveLambda(materialDb, category, material);
@@ -739,7 +752,7 @@ export default function InsulationCalcPage() {
   const [newMaterialLambda, setNewMaterialLambda] = useState(0.04);
   const [newMaterialDensity, setNewMaterialDensity] = useState(0.03);
   const [layers, setLayers] = useState(initialLayers);
-  const [surfacePart, setSurfacePart] = useState("外壁（通気層等）");
+  const [surfacePart, setSurfacePart] = useState(DEFAULT_SURFACE_PART);
   const [activeTab, setActiveTab] = useState("section");
   const [bridgeRatios, setBridgeRatios] = useState(initialBridgeRatios);
   const [skipUValueCalculation, setSkipUValueCalculation] = useState(false);
@@ -818,8 +831,7 @@ export default function InsulationCalcPage() {
   const fullName = [fileName.part, fileName.midName, fileName.number].filter(Boolean).join("_") || "無題";
 
   function createSavePayload(overrides = {}) {
-    return {
-      schemaVersion: SAVE_SCHEMA_VERSION,
+    return serializeInsulationProjectDocument({
       fullName,
       memo: fileName.memo,
       layers,
@@ -828,42 +840,8 @@ export default function InsulationCalcPage() {
       materialDb,
       densityDb,
       skipUValueCalculation,
-      savedAt: new Date().toISOString(),
-      ...overrides,
-    };
-  }
-
-  function normalizeLoadedData(raw) {
-    const schemaVersion = Number(raw?.schemaVersion || 1);
-    const rawMaterialDb = raw?.materialDb && typeof raw.materialDb === "object" ? raw.materialDb : INITIAL_MATERIAL_DB;
-    const loadedMaterialDb = mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(rawMaterialDb));
-    const loadedDensityDb = normalizeDensityDbEntries(raw?.densityDb);
-
-    let loadedLayers = Array.isArray(raw?.layers) ? raw.layers : initialLayers;
-    loadedLayers = loadedLayers.map((layer, i) => {
-      const base = defaultLayer(i);
-      const layerMaterials = Array.isArray(layer?.materials) ? layer.materials : base.materials;
-      return {
-        ...base,
-        ...layer,
-        materials: layerMaterials.map((mat) => ({ ...makeMat(), ...mat })),
-      };
+      overrides,
     });
-
-    // 旧データ向け: bridgeRatios が無い場合は初期値を補完
-    const loadedBridgeRatios = Array.isArray(raw?.bridgeRatios) ? raw.bridgeRatios : initialBridgeRatios;
-
-    return {
-      schemaVersion,
-      fullName: raw?.fullName || "",
-      memo: raw?.memo || "",
-      layers: sanitizeRsSurfaceLayers(loadedLayers),
-      surfacePart: raw?.surfacePart || "外壁（通気層等）",
-      bridgeRatios: loadedBridgeRatios,
-      materialDb: loadedMaterialDb,
-      densityDb: loadedDensityDb,
-      skipUValueCalculation: raw?.skipUValueCalculation === true,
-    };
   }
 
   function showMsg(type, text) {
@@ -1128,7 +1106,7 @@ export default function InsulationCalcPage() {
     reader.onload = (ev) => {
       try {
         const rawData = JSON.parse(ev.target.result);
-        const data = normalizeLoadedData(rawData);
+        const data = parseInsulationProjectDocument(rawData, INSULATION_PROJECT_LAYER_CODEC);
         setLayers(data.layers);
         setSurfacePart(data.surfacePart);
         setBridgeRatios(data.bridgeRatios);
@@ -1151,7 +1129,7 @@ export default function InsulationCalcPage() {
   function handleNew() {
     if (isDirty && !window.confirm("未保存の変更があります。新規作成しますか？")) return;
     setLayers(sanitizeRsSurfaceLayers(initialLayers));
-    setSurfacePart("外壁（通気層等）");
+    setSurfacePart(DEFAULT_SURFACE_PART);
     setMaterialDb(getFreshMergedMaterialDb());
     setDensityDb(normalizeDensityDbEntries(undefined));
     setEditingCategory(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
@@ -1164,7 +1142,7 @@ export default function InsulationCalcPage() {
   const TABS = [
     { id: "section", label: "断面構成" },
     { id: "uvalue",  label: "熱貫流率" },
-    { id: "deadload",label: "固定荷重" },
+    { id: "deadload", label: "固定荷重" },
   ];
 
   const panelStyle = {
