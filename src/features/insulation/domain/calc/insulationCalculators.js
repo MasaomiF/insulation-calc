@@ -77,22 +77,15 @@ export function calculateUValue(layers, rsi, rse, bridgeRatios, materialDb) {
   const insulationRatio = Math.max(0, 1 - totalBridgeRatio);
   const U_ins = R_common > 0 ? 1 / R_common : 0;
 
-  let uFinal = U_ins * insulationRatio;
-  const bridgeResults = bridgeRatios
-    .map((ratio, idx) => {
-      const r = parseFloat(ratio) || 0;
-      if (r <= 0) return null;
-      const R_bridge = R_common + bridgeRExtras[idx];
-      const U_bridge = R_bridge > 0 ? 1 / R_bridge : 0;
-      uFinal += U_bridge * r;
-      return { ratio: r, R: R_bridge, U: U_bridge, index: idx };
-    })
-    .filter(Boolean);
-
-  const R_bridge_disp =
-    bridgeResults.length > 0
-      ? bridgeResults.reduce((s, b) => s + b.R * b.ratio, 0) / (totalBridgeRatio || 1)
-      : R_common;
+  const sumRBridge = rows.reduce((sum, row) => {
+    if (row.label?.startsWith("室内側") || row.label?.startsWith("外気側")) return sum + (row.R_bridge || 0);
+    if (row.flag === "断熱") return sum;
+    return sum + (row.R_bridge || 0);
+  }, 0);
+  const R_bridge_disp = sumRBridge > 0 ? sumRBridge : R_common;
+  const U_bridge_disp = R_bridge_disp > 0 ? 1 / R_bridge_disp : 0;
+  const uFinal = U_ins * insulationRatio + U_bridge_disp * totalBridgeRatio;
+  const bridgeResults = [];
 
   return { uFinal, U_ins, R_common, R_bridge_disp, insulationRatio, bridgeResults, rows, startLayer, endLayer };
 }
