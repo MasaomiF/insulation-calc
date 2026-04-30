@@ -41,6 +41,6 @@ export async function exportInsulationReportPdf(element, suggestedBaseName = "re
     heightLeft -= contentH;
   }
 
-  const safe = String(suggestedBaseName || "report").replace(/[/\\?%*:|"<>]/g, "-").trim() || "report";
+  const safe = String(suggestedBaseName || "report").replace(/[/\\?%*:|"<>]/g, "_").trim() || "report";
   pdf.save(`${safe}_断熱荷重レポート.pdf`);
 }

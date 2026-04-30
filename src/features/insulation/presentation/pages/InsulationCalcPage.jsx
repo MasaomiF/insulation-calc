@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { UValuePanel } from "../components/UValuePanel";
 import { InsulationPdfReportRoot } from "../components/InsulationPdfReportRoot";
 import { exportInsulationReportPdf } from "../utils/exportInsulationReportPdf";
+import { layerLegendMaterialLabel } from "../utils/layerLegendMaterialLabel";
 import { useInsulationCalc } from "../hooks/useInsulationCalc";
 import { getDensityKgM3 as resolveDensityKgM3, getLambda as resolveLambda } from "../../domain/calc/insulationCalculators";
 import {
@@ -798,7 +799,7 @@ export default function InsulationCalcPage() {
     }
   }, [editingCategory, materialCategories, materialDb]);
 
-  const fullName = [fileName.part, fileName.midName, fileName.number].filter(Boolean).join("-") || "無題";
+  const fullName = [fileName.part, fileName.midName, fileName.number].filter(Boolean).join("_") || "無題";
 
   function createSavePayload(overrides = {}) {
     return {
@@ -1088,7 +1089,7 @@ export default function InsulationCalcPage() {
 
   // ── 別名保存（新しいファイル名でダウンロード） ──
   function handleSaveAs() {
-    const newName = window.prompt("別名を入力してください（部位名-中間名-番号）", fullName);
+    const newName = window.prompt("別名を入力してください（部位名_中間名_番号）", fullName);
     if (!newName) return;
     const data = createSavePayload({ fullName: newName });
     downloadJSON(data, `${newName}.json`);
@@ -1117,7 +1118,7 @@ export default function InsulationCalcPage() {
         setDensityDb(data.densityDb);
         const firstCategory = Object.keys(data.materialDb)[0];
         if (firstCategory) setEditingCategory(firstCategory);
-        const parts = (data.fullName || "").split("-");
+        const parts = (data.fullName || "").split(/[-_]/);
         setFileName({ part: parts[0] || "", midName: parts[1] || "", number: parts[2] || "", memo: data.memo || "" });
         setIsDirty(false);
         showMsg("ok", `「${data.fullName || file.name}」を読み込みました（schema v${data.schemaVersion}）`);
@@ -1632,8 +1633,8 @@ export default function InsulationCalcPage() {
                     </div>
                     <span style={{ fontSize: 11, color: "var(--color-text-secondary)", minWidth: 28 }}>L{layers.indexOf(layer) + 1}</span>
                     <span style={{ fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {layer.materials[0].material || "（未設定）"}
-                      {layer.materials.length > 1 && layer.materials[1].materialType !== "none" && ` + ${layer.materials[1].material || "熱橋"}`}
+                      {layerLegendMaterialLabel(layer.materials[0])}
+                      {layer.materials.length > 1 && layer.materials[1].materialType !== "none" && ` + ${layerLegendMaterialLabel(layer.materials[1], "熱橋")}`}
                     </span>
                     <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)", flexShrink: 0 }}>{layer.thickness} mm</span>
                   </div>

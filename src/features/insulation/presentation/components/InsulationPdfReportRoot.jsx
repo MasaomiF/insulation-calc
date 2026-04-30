@@ -1,4 +1,5 @@
 import { forwardRef } from "react";
+import { layerLegendMaterialLabel } from "../utils/layerLegendMaterialLabel";
 
 const box = { border: "1px solid #d4d4d4", borderRadius: 3, padding: "6px 8px" };
 const h2 = { fontSize: 11, fontWeight: 700, margin: "0 0 5px 0", color: "#111827", borderBottom: "1px solid #e5e7eb", paddingBottom: 3 };
@@ -177,11 +178,11 @@ export const InsulationPdfReportRoot = forwardRef(function InsulationPdfReportRo
                 <tbody>
                   {activeLayers.map((layer, i) => {
                     const idx = layers.indexOf(layer) + 1;
-                    const m0 = layer.materials[0]?.material || "（未設定）";
+                    const m0 = layerLegendMaterialLabel(layer.materials[0]);
                     const m1 = layer.materials[1];
                     const extra =
                       layer.materials.length > 1 && m1?.materialType !== "none"
-                        ? ` +${m1.material || "熱橋"}`
+                        ? ` +${layerLegendMaterialLabel(m1, "熱橋")}`
                         : "";
                     return (
                       <tr key={i}>
