@@ -1517,24 +1517,24 @@ export default function InsulationCalcPage() {
           </div>
 
           {/* 計算条件パネル（Rsi/Rse + 熱橋面積比） */}
-          {/* 熱貫流率を計算しない — パネル外 */}
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, userSelect: "none", padding: "2px 0" }}>
-            <input
-              type="checkbox"
-              checked={skipUValueCalculation}
-              onChange={(e) => {
-                setSkipUValueCalculation(e.target.checked);
-                setIsDirty(true);
-              }}
-            />
-            <span>熱貫流率を計算しない</span>
-          </label>
-
           <div style={panelStyle}>
             <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)" }}>
               <span style={{ fontSize: 12, fontWeight: 500 }}>熱貫流率の計算条件</span>
             </div>
             <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 12 }}>
+
+              {/* 熱貫流率を計算しない */}
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={skipUValueCalculation}
+                  onChange={(e) => {
+                    setSkipUValueCalculation(e.target.checked);
+                    setIsDirty(true);
+                  }}
+                />
+                <span>熱貫流率を計算しない</span>
+              </label>
 
               {/* 表面熱伝達抵抗 */}
               <div>
