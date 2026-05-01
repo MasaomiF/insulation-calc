@@ -1373,49 +1373,26 @@ export default function InsulationCalcPage() {
             </div>
             {showDbPanel && (
               <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 6, alignItems: "stretch" }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <select
                     value={editingCategory}
                     onChange={(e) => setEditingCategory(e.target.value)}
-                    style={{ ...inpStyle, fontSize: 11 }}
+                    style={{ ...inpStyle, fontSize: 11, flex: 1 }}
                   >
                     {materialCategories.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategoryModal("rename");
-                      setCategoryModalDraft(editingCategory);
-                    }}
-                    style={btnStyle()}
+                  <a
+                    href="https://project-db-ten.vercel.app/admin/materials"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ ...btnStyle(), fontSize: 10, padding: "4px 9px", textDecoration: "none", whiteSpace: "nowrap" }}
+                    title="材料DBの管理画面を開く（カテゴリ追加・材料編集はこちら）"
                   >
-                    カテゴリ名変更
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategoryModal("add");
-                      setCategoryModalDraft("");
-                    }}
-                    style={btnStyle()}
-                  >
-                    カテゴリ追加
-                  </button>
+                    🗄 材料DB管理
+                  </a>
                 </div>
-                {lambdaDupGroups.length > 0 && (
-                  <div style={{ fontSize: 10, color: "#92400e", background: "#fffbeb", border: "0.5px solid #fcd34d", borderRadius: 4, padding: "6px 8px", lineHeight: 1.45, maxHeight: 120, overflowY: "auto" }}>
-                    <strong>λ が同じ組み合わせ（要確認）</strong>
-                    {lambdaDupGroups.map((g) => (
-                      <div key={`${g.λ}-${g.materials[0]}`} style={{ marginTop: 4 }}>
-                        <span style={{ fontFamily: "var(--font-mono)" }}>λ={g.λ}</span>
-                        <span style={{ color: "var(--color-text-secondary)" }}>（{g.materials.length}件）</span>
-                        <div style={{ marginTop: 2, color: "var(--color-text-primary)" }}>{g.materials.join(" / ")}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
                 <div style={{ border: "1px solid #185FA5", borderRadius: 6, padding: 10, display: "flex", flexDirection: "column", gap: 8, background: "#f0f7fc" }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: "#0C447C" }}>材料を追加</div>
                   <div style={{ fontSize: 10, color: "var(--color-text-secondary)", lineHeight: 1.45 }}>
