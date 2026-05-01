@@ -19,6 +19,8 @@ import {
   serializeInsulationProjectDocument,
   parseInsulationProjectDocument,
 } from "../../data/insulationProjectDocument.js";
+import { materialCatalogSource } from "../../config/dataSources.js";
+import { fetchMaterialsFromSupabase } from "../../data/fetchMaterialsFromSupabase.js";
 
 // ============================================================
 // 表面熱伝達抵抗（国土交通省 Ver.15 表3.1・3.2）
@@ -744,6 +746,7 @@ export default function InsulationCalcPage() {
   const [materialDb, setMaterialDb] = useState(() => getFreshMergedMaterialDb());
   const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
   const [densityDb, setDensityDb] = useState(() => normalizeDensityDbEntries(undefined));
+  const [catalogLoading, setCatalogLoading] = useState(materialCatalogSource === "remote");
   const [showDbPanel, setShowDbPanel] = useState(true);
   /** null | "rename" | "add" — カテゴリ名変更・追加はモーダルで入力 */
   const [categoryModal, setCategoryModal] = useState(null);
@@ -781,8 +784,23 @@ export default function InsulationCalcPage() {
 
   // マウント時にカタログ追加分（余白等）を materialDb / densityDb へ取り込む（旧セッション・未マージ state 対策）
   useEffect(() => {
-    setMaterialDb((prev) => mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(prev)));
-    setDensityDb((prev) => normalizeDensityDbEntries(prev));
+    if (materialCatalogSource === "remote") {
+      fetchMaterialsFromSupabase()
+        .then(({ materialDb: remoteDb, densityDb: remoteDensity }) => {
+          setMaterialDb(remoteDb);
+          setEditingCategory(Object.keys(remoteDb)[0] || "");
+          setDensityDb(remoteDensity);
+        })
+        .catch((err) => {
+          console.error("材料DBの取得に失敗しました。ローカルカタログを使用します。", err);
+          setMaterialDb((prev) => mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(prev)));
+          setDensityDb((prev) => normalizeDensityDbEntries(prev));
+        })
+        .finally(() => setCatalogLoading(false));
+    } else {
+      setMaterialDb((prev) => mergeMaterialDbWithCatalog(normalizeMaterialDbEntries(prev)));
+      setDensityDb((prev) => normalizeDensityDbEntries(prev));
+    }
   }, []);
 
   const surfaceData = RSI_RSE_VALUES.find((r) => r.part === surfacePart) || RSI_RSE_VALUES[4];
@@ -1171,6 +1189,14 @@ export default function InsulationCalcPage() {
     color: variant === "primary" ? "white" : variant === "danger" ? "#dc2626" : "var(--color-text-primary)",
     whiteSpace: "nowrap",
   });
+
+  if (catalogLoading) {
+    return (
+      <div style={{ fontFamily: "var(--font-sans)", color: "var(--color-text-secondary)", padding: "40px 0", textAlign: "center", fontSize: 13 }}>
+        材料データベースを読み込んでいます…
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "var(--font-sans)", color: "var(--color-text-primary)", maxWidth: 1000, margin: "0 auto" }}>
