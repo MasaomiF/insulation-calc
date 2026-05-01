@@ -747,6 +747,7 @@ export default function InsulationCalcPage() {
   const [editingCategory, setEditingCategory] = useState(Object.keys(INITIAL_MATERIAL_DB)[0] || "");
   const [densityDb, setDensityDb] = useState(() => normalizeDensityDbEntries(undefined));
   const [catalogLoading, setCatalogLoading] = useState(materialCatalogSource === "remote");
+  const [dbReloading, setDbReloading] = useState(false);
   const [showDbPanel, setShowDbPanel] = useState(true);
   /** null | "rename" | "add" — カテゴリ名変更・追加はモーダルで入力 */
   const [categoryModal, setCategoryModal] = useState(null);
@@ -754,6 +755,8 @@ export default function InsulationCalcPage() {
   const [newMaterialName, setNewMaterialName] = useState("");
   const [newMaterialLambda, setNewMaterialLambda] = useState(0.04);
   const [newMaterialDensity, setNewMaterialDensity] = useState(0.03);
+  /** 追加時に λ を null にする（余白・余力などと同様） */
+  const [newMaterialSkipLambda, setNewMaterialSkipLambda] = useState(false);
   const [layers, setLayers] = useState(initialLayers);
   const [surfacePart, setSurfacePart] = useState(DEFAULT_SURFACE_PART);
   const [activeTab, setActiveTab] = useState("section");
@@ -929,6 +932,28 @@ export default function InsulationCalcPage() {
     setDensityDb((prev) => ({ ...prev, [value]: nextDensity }));
     setIsDirty(true);
   }, []);
+
+  // ── オンラインDBから材料データを再読み込み ──
+  const reloadFromRemote = useCallback(async () => {
+    if (materialCatalogSource !== "remote") {
+      showMsg("err", "オンラインDB接続が無効です（VITE_MATERIAL_CATALOG_SOURCE=remote が必要です）。");
+      return;
+    }
+    setDbReloading(true);
+    try {
+      const { materialDb: remoteDb, densityDb: remoteDensity } = await fetchMaterialsFromSupabase();
+      setMaterialDb(remoteDb);
+      setDensityDb(remoteDensity);
+      setEditingCategory(Object.keys(remoteDb)[0] || "");
+      showMsg("ok", "オンラインDBから材料データを再読み込みしました。");
+    } catch (err) {
+      console.error(err);
+      showMsg("err", "再読み込みに失敗しました。ネットワークを確認してください。");
+    } finally {
+      setDbReloading(false);
+    }
+  }, [showMsg]);
+
   const commitAddCategory = useCallback(
     (draft) => {
       const name = draft.trim();
@@ -1052,10 +1077,20 @@ export default function InsulationCalcPage() {
   }, [materialDb]);
   const addMaterialToCategory = useCallback(() => {
     const name = newMaterialName.trim();
-    if (!editingCategory || !name) return;
+    if (!editingCategory) {
+      showMsg("err", "カテゴリを選択してください。");
+      return;
+    }
+    if (!name) {
+      showMsg("err", "材料名を入力してください。");
+      return;
+    }
     const exists = Object.values(materialDb).some((items) => items.some((item) => item.value === name));
-    if (exists) return;
-    const nextLambda = parseFloat(newMaterialLambda) || 0;
+    if (exists) {
+      showMsg("err", `「${name}」は既に登録されています。材料名は全カテゴリで一意にしてください。`);
+      return;
+    }
+    const nextLambda = newMaterialSkipLambda ? null : (parseFloat(newMaterialLambda) || 0);
     const nextDensity = parseFloat(newMaterialDensity) || 0;
     setMaterialDb((prev) => ({
       ...prev,
@@ -1068,8 +1103,18 @@ export default function InsulationCalcPage() {
     setNewMaterialName("");
     setNewMaterialLambda(0.04);
     setNewMaterialDensity(0.03);
+    setNewMaterialSkipLambda(false);
     setIsDirty(true);
-  }, [editingCategory, materialDb, newMaterialDensity, newMaterialLambda, newMaterialName]);
+    showMsg("ok", `「${name}」を「${editingCategory}」に追加しました。`);
+  }, [
+    editingCategory,
+    materialDb,
+    newMaterialDensity,
+    newMaterialLambda,
+    newMaterialName,
+    newMaterialSkipLambda,
+    showMsg,
+  ]);
 
   // ── JSONをダウンロード ──
   function downloadJSON(data, name) {
@@ -1306,9 +1351,25 @@ export default function InsulationCalcPage() {
           <div style={panelStyle}>
             <div style={{ padding: "8px 12px", borderBottom: "0.5px solid var(--color-border-tertiary)", background: "var(--color-background-secondary)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span style={{ fontSize: 12, fontWeight: 500 }}>物性値データベース（λ / 比重 / カテゴリ）</span>
-              <button onClick={() => setShowDbPanel((v) => !v)} style={{ ...btnStyle(), fontSize: 10, padding: "2px 7px" }}>
-                {showDbPanel ? "閉じる" : "開く"}
-              </button>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {materialCatalogSource === "remote" && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm("オンラインDBの内容でローカルの変更をすべて上書きします。\nよろしいですか？")) {
+                        reloadFromRemote();
+                      }
+                    }}
+                    disabled={dbReloading}
+                    style={{ ...btnStyle(), fontSize: 10, padding: "2px 7px", opacity: dbReloading ? 0.6 : 1 }}
+                    title="Supabaseから最新の材料データを再取得してローカルの変更を初期化します"
+                  >
+                    {dbReloading ? "読込中…" : "🔄 DBリセット"}
+                  </button>
+                )}
+                <button onClick={() => setShowDbPanel((v) => !v)} style={{ ...btnStyle(), fontSize: 10, padding: "2px 7px" }}>
+                  {showDbPanel ? "閉じる" : "開く"}
+                </button>
+              </div>
             </div>
             {showDbPanel && (
               <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1355,6 +1416,61 @@ export default function InsulationCalcPage() {
                     ))}
                   </div>
                 )}
+                <div style={{ border: "1px solid #185FA5", borderRadius: 6, padding: 10, display: "flex", flexDirection: "column", gap: 8, background: "#f0f7fc" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#0C447C" }}>材料を追加</div>
+                  <div style={{ fontSize: 10, color: "var(--color-text-secondary)", lineHeight: 1.45 }}>
+                    上のプルダウンで追加先の<strong>カテゴリ</strong>を選び、材料名・λ・比重を入力して「追加」します。
+                    材料名は<strong>全カテゴリで重複不可</strong>です。プロジェクト JSON を保存するとカスタム材料も引き継がれます。
+                  </div>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, cursor: "pointer", userSelect: "none" }}>
+                    <input
+                      type="checkbox"
+                      checked={newMaterialSkipLambda}
+                      onChange={(e) => setNewMaterialSkipLambda(e.target.checked)}
+                    />
+                    <span>λなし（熱抵抗に含めない。余白・余力など）</span>
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.5fr 0.85fr 0.85fr auto", gap: 6, alignItems: "end" }}>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>材料名</span>
+                      <input
+                        value={newMaterialName}
+                        onChange={(e) => setNewMaterialName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") addMaterialToCategory();
+                        }}
+                        style={inpStyle}
+                        placeholder="例: 社内規格断熱材A"
+                      />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>λ W/(m·K)</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={newMaterialLambda}
+                        onChange={(e) => setNewMaterialLambda(parseFloat(e.target.value) || 0)}
+                        disabled={newMaterialSkipLambda}
+                        style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right", opacity: newMaterialSkipLambda ? 0.5 : 1 }}
+                        placeholder="λ"
+                      />
+                    </label>
+                    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{ fontSize: 10, color: "var(--color-text-secondary)" }}>比重（t/m³相当）</span>
+                      <input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        value={newMaterialDensity}
+                        onChange={(e) => setNewMaterialDensity(parseFloat(e.target.value) || 0)}
+                        style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
+                        placeholder="例: 0.8"
+                      />
+                    </label>
+                    <button type="button" onClick={addMaterialToCategory} style={btnStyle("primary")}>追加</button>
+                  </div>
+                </div>
                 <div style={{ maxHeight: 260, overflowY: "auto", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: 8, display: "flex", flexDirection: "column", gap: 10 }}>
                   {editingMaterials.length === 0 ? (
                     <div style={{ padding: "12px 8px", fontSize: 11, color: "var(--color-text-secondary)" }}>
@@ -1418,36 +1534,6 @@ export default function InsulationCalcPage() {
                       </div>
                     </div>
                   ))}
-                </div>
-                <div style={{ border: "0.5px solid var(--color-border-tertiary)", borderRadius: 4, padding: 8, display: "grid", gap: 6 }}>
-                  <div style={{ fontSize: 10, color: "var(--color-text-secondary)", fontWeight: 500 }}>材料を追加（現在カテゴリ: {editingCategory || "未選択"}）</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr auto", gap: 6 }}>
-                    <input
-                      value={newMaterialName}
-                      onChange={(e) => setNewMaterialName(e.target.value)}
-                      style={inpStyle}
-                      placeholder="材料名"
-                    />
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={newMaterialLambda}
-                      onChange={(e) => setNewMaterialLambda(parseFloat(e.target.value) || 0)}
-                      style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
-                      placeholder="λ"
-                    />
-                    <input
-                      type="number"
-                      step="0.001"
-                      min="0"
-                      value={newMaterialDensity}
-                      onChange={(e) => setNewMaterialDensity(parseFloat(e.target.value) || 0)}
-                      style={{ ...inpStyle, fontFamily: "var(--font-mono)", textAlign: "right" }}
-                      placeholder="比重"
-                    />
-                    <button onClick={addMaterialToCategory} style={btnStyle("primary")}>追加</button>
-                  </div>
                 </div>
               </div>
             )}
