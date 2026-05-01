@@ -2,6 +2,7 @@ import { supabase } from "../../../lib/supabase.js";
 
 /**
  * Supabase から材料カタログを取得し、materialDb / densityDb 形式に変換する。
+ * 1つの材料が複数カテゴリに属する場合、それぞれのカテゴリに表示される。
  * @returns {{ materialDb: Record<string, {label:string,value:string,λ:number|null,memo:string}[]>, densityDb: Record<string,number> }}
  */
 export async function fetchMaterialsFromSupabase() {
@@ -14,7 +15,7 @@ export async function fetchMaterialsFromSupabase() {
 
   const { data: rows, error: matErr } = await supabase
     .from("materials")
-    .select("category_id, name, lambda, density, memo")
+    .select("name, lambda, density, memo, material_category_links(category_id, is_primary)")
     .eq("is_active", true)
     .order("sort_order");
 
@@ -28,15 +29,24 @@ export async function fetchMaterialsFromSupabase() {
   const densityDb = {};
 
   for (const row of rows ?? []) {
-    const catName = catMap[row.category_id];
-    if (!catName) continue;
-    if (!materialDb[catName]) materialDb[catName] = [];
-    materialDb[catName].push({
+    const entry = {
       label: row.name,
       value: row.name,
       λ: row.lambda != null ? Number(row.lambda) : null,
       memo: row.memo ?? "",
-    });
+    };
+
+    // 全カテゴリに追加（複数カテゴリ対応）
+    for (const link of row.material_category_links ?? []) {
+      const catName = catMap[link.category_id];
+      if (!catName) continue;
+      if (!materialDb[catName]) materialDb[catName] = [];
+      // 同一カテゴリへの重複追加を防ぐ
+      if (!materialDb[catName].some((m) => m.value === row.name)) {
+        materialDb[catName].push(entry);
+      }
+    }
+
     if (row.density != null) densityDb[row.name] = Number(row.density);
   }
 
