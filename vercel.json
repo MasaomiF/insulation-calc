@@ -1,0 +1,9 @@
+{
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "destination": "https://project-db-ten.vercel.app/apps/insulation",
+      "permanent": true
+    }
+  ]
+}
